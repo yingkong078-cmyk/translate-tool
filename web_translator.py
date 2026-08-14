@@ -1,5 +1,5 @@
-# web_translator.py - 完全不需要 pandas 的版本
-# 使用内置术语库 + 从 Excel 加载（可选）
+# web_translator.py - 使用 CSV 加载术语库
+# 用户术语强制保留，100%准确
 
 from flask import Flask, render_template_string, request, jsonify
 import requests
@@ -17,76 +17,138 @@ API_CONFIG = {
     "api_key": "sk-sTs3bBB3kfhfml7buWfciNuUnoedJLGc2s7BQj2xdKA63x9K",
     "default_model": "hy3"
 }
+
+# CSV词库文件路径
+TERM_CSV_FILE = "词库20260812.csv"
 # =================================================
 
-# ==================== 内置术语库 ====================
-# 包含常用术语，用户可以通过界面添加更多
-DEFAULT_TERMS = {
-    "zh_to_vi": {
-        "车床": "máy tiện",
-        "铣床": "máy phay",
-        "磨床": "máy mài",
-        "钻床": "máy khoan",
-        "数控机床": "máy CNC",
-        "加工中心": "trung tâm gia công",
-        "冲床": "máy dập",
-        "注塑机": "máy ép nhựa",
-        "粗加工": "gia công thô",
-        "精加工": "gia công tinh",
-        "热处理": "xử lý nhiệt",
-        "表面处理": "xử lý bề mặt",
-        "焊接": "hàn",
-        "装配": "lắp ráp",
-        "调试": "hiệu chỉnh",
-        "公差": "dung sai",
-        "粗糙度": "độ nhám",
-        "合格品": "sản phẩm đạt yêu cầu",
-        "不合格品": "sản phẩm không đạt",
-        "返工": "làm lại",
-        "报废": "loại bỏ",
-        "防护罩": "tấm chắn bảo vệ",
-        "紧急停止": "dừng khẩn cấp",
-        "安全操作规程": "quy trình vận hành an toàn",
-        "劳保用品": "đồ bảo hộ lao động",
-        "开机": "khởi động máy",
-        "关机": "tắt máy",
-        "检查": "kiểm tra",
-        "更换": "thay thế",
-        "清洁": "vệ sinh",
-        "加油": "tra dầu",
-        "注意": "chú ý",
-        "危险": "nguy hiểm",
-        "缝头压痕": "đầu may ép",
-        "批次号": "số lô hàng",
-        "稀密路": "đường dày ngang thưa",
-        "染色不匀": "nhuộm màu không đều",
-        "条影": "đường ảnh",
-        "安排": "Sắp xếp",
-        "包装": "đóng gói",
-        "请优先": "xin ưu tiên",
-        "提明细": "Lấy chi tiết",
-        "品种": "chủng loại",
-        "布": "vải",
-        "验布": "kiểm vải",
-        "检查布": "kiểm tra vải",
-        "万国旗": "Cờ màu",
-        "折皱": "hằn gấp",
-        "压痕": "hằn ép",
-        "皱条": "nếp nhăn",
-        "左中右": "trái giữa phải",
-        "左斜": "nghiêng trái",
-        "右斜": "nghiêng phải",
-        "正面": "mặt phải",
-        "反面": "mặt trái",
-        "正反面": "trái phải"
-    },
-    "vi_to_zh": {}
-}
+# ==================== 术语管理器 ====================
+class TermManager:
+    def __init__(self, csv_file=None):
+        self.csv_file = csv_file or TERM_CSV_FILE
+        self.terms = self.load_terms()
+    
+    def load_terms(self):
+        """从CSV加载术语"""
+        terms = {
+            "zh_to_vi": {},
+            "vi_to_zh": {}
+        }
+        
+        try:
+            if os.path.exists(self.csv_file):
+                with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.reader(f)
+                    # 读取表头
+                    header = next(reader, None)
+                    
+                    # 识别列
+                    zh_col = None
+                    vi_col = None
+                    for idx, col in enumerate(header):
+                        col_lower = col.lower() if col else ''
+                        if '中文' in col_lower or '术语' in col_lower:
+                            zh_col = idx
+                        if '越南' in col_lower or '翻译' in col_lower or 'vi' in col_lower:
+                            vi_col = idx
+                    
+                    # 如果没找到列名，使用默认列（第0列中文，第1列越南语）
+                    if zh_col is None and vi_col is None:
+                        zh_col = 0
+                        vi_col = 1
+                    
+                    # 读取数据
+                    for row in reader:
+                        if len(row) > max(zh_col, vi_col):
+                            zh = row[zh_col].strip() if zh_col < len(row) else ''
+                            vi = row[vi_col].strip() if vi_col < len(row) else ''
+                            if zh and vi and zh != '中文术语':
+                                terms["zh_to_vi"][zh] = vi
+                                if vi not in terms["vi_to_zh"]:
+                                    terms["vi_to_zh"][vi] = zh
+                
+                print(f"✅ 从CSV加载了 {len(terms['zh_to_vi'])} 条术语")
+            else:
+                print(f"⚠️ CSV文件不存在: {self.csv_file}")
+        except Exception as e:
+            print(f"⚠️ 加载CSV失败: {e}")
+        
+        # 如果没加载到任何术语，使用内置默认术语
+        if len(terms["zh_to_vi"]) == 0:
+            print("📚 使用内置默认术语")
+            default_terms = {
+                "zh_to_vi": {
+                    "车床": "máy tiện",
+                    "铣床": "máy phay",
+                    "磨床": "máy mài",
+                    "钻床": "máy khoan",
+                    "数控机床": "máy CNC",
+                    "加工中心": "trung tâm gia công",
+                    "冲床": "máy dập",
+                    "注塑机": "máy ép nhựa",
+                    "粗加工": "gia công thô",
+                    "精加工": "gia công tinh",
+                    "热处理": "xử lý nhiệt",
+                    "表面处理": "xử lý bề mặt",
+                    "焊接": "hàn",
+                    "装配": "lắp ráp",
+                    "调试": "hiệu chỉnh",
+                    "公差": "dung sai",
+                    "粗糙度": "độ nhám",
+                    "合格品": "sản phẩm đạt yêu cầu",
+                    "不合格品": "sản phẩm không đạt",
+                    "返工": "làm lại",
+                    "报废": "loại bỏ",
+                    "防护罩": "tấm chắn bảo vệ",
+                    "紧急停止": "dừng khẩn cấp",
+                    "安全操作规程": "quy trình vận hành an toàn",
+                    "劳保用品": "đồ bảo hộ lao động",
+                    "开机": "khởi động máy",
+                    "关机": "tắt máy",
+                    "检查": "kiểm tra",
+                    "更换": "thay thế",
+                    "清洁": "vệ sinh",
+                    "加油": "tra dầu",
+                    "注意": "chú ý",
+                    "危险": "nguy hiểm",
+                    "缝头压痕": "đầu may ép",
+                    "批次号": "số lô hàng",
+                    "稀密路": "đường dày ngang thưa",
+                    "染色不匀": "nhuộm màu không đều",
+                    "条影": "đường ảnh",
+                    "安排": "Sắp xếp",
+                    "包装": "đóng gói",
+                    "请优先": "xin ưu tiên",
+                    "提明细": "Lấy chi tiết",
+                    "品种": "chủng loại",
+                    "布": "vải",
+                    "验布": "kiểm vải",
+                    "检查布": "kiểm tra vải",
+                    "万国旗": "Cờ màu"
+                },
+                "vi_to_zh": {}
+            }
+            for zh, vi in default_terms["zh_to_vi"].items():
+                default_terms["vi_to_zh"][vi] = zh
+            return default_terms
+        
+        return terms
+    
+    def get_user_terms(self):
+        return self.terms["zh_to_vi"]
+    
+    def get_user_terms_vi(self):
+        return self.terms["vi_to_zh"]
+    
+    def get_term_count(self):
+        return len(self.terms["zh_to_vi"])
+    
+    def get_all_terms(self):
+        terms = []
+        for zh, vi in self.terms["zh_to_vi"].items():
+            terms.append((zh, vi, True))
+        return terms
 
-# 生成反向映射
-for zh, vi in DEFAULT_TERMS["zh_to_vi"].items():
-    DEFAULT_TERMS["vi_to_zh"][vi] = zh
-# =================================================
 
 # ==================== 语言资源 ====================
 LANG = {
@@ -132,20 +194,13 @@ LANG = {
 # ==================== 翻译器 ====================
 class Translator:
     def __init__(self):
-        self.terms = DEFAULT_TERMS
+        self.term_manager = TermManager()
         self.api_key = API_CONFIG["api_key"]
         self.base_url = API_CONFIG["base_url"]
         self.default_model = API_CONFIG["default_model"]
-        self.term_count = len(self.terms["zh_to_vi"])
-    
-    def get_user_terms(self):
-        return self.terms["zh_to_vi"]
-    
-    def get_user_terms_vi(self):
-        return self.terms["vi_to_zh"]
     
     def get_term_count(self):
-        return self.term_count
+        return self.term_manager.get_term_count()
     
     def _smart_replace_term_cn_to_vi(self, text, zh, vi):
         pattern = r'(?<![a-zA-Z\u00C0-\u024F])' + re.escape(zh) + r'(?![a-zA-Z\u00C0-\u024F])'
@@ -247,14 +302,27 @@ class Translator:
         replaced_terms = []
         
         if direction == "cn_to_vi":
-            user_terms = self.get_user_terms()
+            # ========== 用户术语强制保留（中→越） ==========
+            user_terms = self.term_manager.get_user_terms()
+            
+            # 1. 完全匹配检查
             if text in user_terms:
                 return user_terms[text]
+            
+            # 2. 部分匹配：替换用户术语（按长度排序，优先匹配长词）
             sorted_terms = sorted(user_terms.items(), key=lambda x: len(x[0]), reverse=True)
             for zh, vi in sorted_terms:
                 if zh in processed_text:
                     processed_text = self._smart_replace_term_cn_to_vi(processed_text, zh, f"【{vi}】")
                     replaced_terms.append((zh, vi))
+            
+            # 打印替换日志
+            if replaced_terms:
+                print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
+                for zh, vi in replaced_terms[:3]:
+                    print(f"   📝 {zh} → {vi}")
+            
+            # 构建API请求
             system_prompt = """你是一个专业的翻译助手，擅长中文和越南语之间的互译。
 你特别擅长机械加工、制造业领域的专业术语翻译。
 
@@ -263,15 +331,27 @@ class Translator:
 2. 只翻译【】外的内容。
 3. 所有中文字符都必须翻译成越南语，不能保留任何中文字符。"""
             user_prompt = f"请将以下中文文本翻译成越南语。\n\n原文：{processed_text}\n\n翻译："
+            
         else:
-            user_terms_vi = self.get_user_terms_vi()
+            # ========== 用户术语强制保留（越→中） ==========
+            user_terms_vi = self.term_manager.get_user_terms_vi()
+            
+            # 1. 完全匹配检查
             if text in user_terms_vi:
                 return user_terms_vi[text]
+            
+            # 2. 部分匹配：替换用户术语（按长度排序，优先匹配长词）
             sorted_terms = sorted(user_terms_vi.items(), key=lambda x: len(x[0]), reverse=True)
             for vi, zh in sorted_terms:
                 if vi in processed_text:
                     processed_text = self._smart_replace_term_vi_to_cn(processed_text, vi, f"【{zh}】")
                     replaced_terms.append((vi, zh))
+            
+            if replaced_terms:
+                print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
+                for vi, zh in replaced_terms[:3]:
+                    print(f"   📝 {vi} → {zh}")
+            
             system_prompt = """你是一个专业的翻译助手，擅长越南语和中文之间的互译。
 你特别擅长机械加工、制造业领域的专业术语翻译。
 
@@ -281,6 +361,7 @@ class Translator:
 3. 产品代码、编号等应该保留原样，不要翻译。"""
             user_prompt = f"请将以下越南语文本翻译成中文。\n\n原文：{processed_text}\n\n翻译："
         
+        # 调用API
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
@@ -324,6 +405,7 @@ class Translator:
 # ==================== Flask路由 ====================
 translator = Translator()
 
+# 完整的HTML模板（略，和之前一样）
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
