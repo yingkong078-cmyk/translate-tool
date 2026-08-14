@@ -1,5 +1,5 @@
-# web_translator.py - 使用 CSV 加载术语库
-# 用户术语强制保留，100%准确
+# web_translator.py - 增加复制按钮功能
+# 用户术语强制保留，支持一键复制翻译结果
 
 from flask import Flask, render_template_string, request, jsonify
 import requests
@@ -39,33 +39,30 @@ class TermManager:
             if os.path.exists(self.csv_file):
                 with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
                     reader = csv.reader(f)
-                    # 读取表头
-                    header = next(reader, None)
-                    
-                    # 识别列
                     zh_col = None
                     vi_col = None
-                    for idx, col in enumerate(header):
-                        col_lower = col.lower() if col else ''
-                        if '中文' in col_lower or '术语' in col_lower:
-                            zh_col = idx
-                        if '越南' in col_lower or '翻译' in col_lower or 'vi' in col_lower:
-                            vi_col = idx
                     
-                    # 如果没找到列名，使用默认列（第0列中文，第1列越南语）
-                    if zh_col is None and vi_col is None:
-                        zh_col = 0
-                        vi_col = 1
-                    
-                    # 读取数据
                     for row in reader:
-                        if len(row) > max(zh_col, vi_col):
-                            zh = row[zh_col].strip() if zh_col < len(row) else ''
-                            vi = row[vi_col].strip() if vi_col < len(row) else ''
-                            if zh and vi and zh != '中文术语':
-                                terms["zh_to_vi"][zh] = vi
-                                if vi not in terms["vi_to_zh"]:
-                                    terms["vi_to_zh"][vi] = zh
+                        if not row:
+                            continue
+                        
+                        # 检查是否是表头行
+                        if len(row) >= 2:
+                            first_col = row[0].strip() if row[0] else ''
+                            if '中文' in first_col or '术语' in first_col:
+                                zh_col = 0
+                                vi_col = 1
+                                continue
+                        
+                        # 读取数据
+                        if zh_col is not None and vi_col is not None:
+                            if len(row) > max(zh_col, vi_col):
+                                zh = row[zh_col].strip() if zh_col < len(row) else ''
+                                vi = row[vi_col].strip() if vi_col < len(row) else ''
+                                if zh and vi and zh != '中文术语' and '中文' not in zh:
+                                    terms["zh_to_vi"][zh] = vi
+                                    if vi not in terms["vi_to_zh"]:
+                                        terms["vi_to_zh"][vi] = zh
                 
                 print(f"✅ 从CSV加载了 {len(terms['zh_to_vi'])} 条术语")
             else:
@@ -124,7 +121,8 @@ class TermManager:
                     "布": "vải",
                     "验布": "kiểm vải",
                     "检查布": "kiểm tra vải",
-                    "万国旗": "Cờ màu"
+                    "万国旗": "Cờ màu",
+                    "撤明细": "rút chi tiết"
                 },
                 "vi_to_zh": {}
             }
@@ -142,12 +140,6 @@ class TermManager:
     
     def get_term_count(self):
         return len(self.terms["zh_to_vi"])
-    
-    def get_all_terms(self):
-        terms = []
-        for zh, vi in self.terms["zh_to_vi"].items():
-            terms.append((zh, vi, True))
-        return terms
 
 
 # ==================== 语言资源 ====================
@@ -161,6 +153,9 @@ LANG = {
         "translate_btn": "🚀 翻译",
         "clear_btn": "🗑️ 清空",
         "swap_btn": "🔄 互换",
+        "copy_btn": "📋 复制",
+        "copy_success": "✅ 已复制到剪贴板！",
+        "copy_fail": "❌ 没有内容可复制",
         "output_placeholder": "翻译结果将显示在这里...",
         "status_ready": "✅ 就绪",
         "status_translating": "🔄 正在翻译...",
@@ -179,6 +174,9 @@ LANG = {
         "translate_btn": "🚀 Dịch",
         "clear_btn": "🗑️ Xóa",
         "swap_btn": "🔄 Đổi chiều",
+        "copy_btn": "📋 Sao chép",
+        "copy_success": "✅ Đã sao chép vào bộ nhớ tạm!",
+        "copy_fail": "❌ Không có nội dung để sao chép",
         "output_placeholder": "Kết quả dịch sẽ hiển thị ở đây...",
         "status_ready": "✅ Sẵn sàng",
         "status_translating": "🔄 Đang dịch...",
@@ -302,27 +300,20 @@ class Translator:
         replaced_terms = []
         
         if direction == "cn_to_vi":
-            # ========== 用户术语强制保留（中→越） ==========
             user_terms = self.term_manager.get_user_terms()
             
-            # 1. 完全匹配检查
             if text in user_terms:
                 return user_terms[text]
             
-            # 2. 部分匹配：替换用户术语（按长度排序，优先匹配长词）
             sorted_terms = sorted(user_terms.items(), key=lambda x: len(x[0]), reverse=True)
             for zh, vi in sorted_terms:
                 if zh in processed_text:
                     processed_text = self._smart_replace_term_cn_to_vi(processed_text, zh, f"【{vi}】")
                     replaced_terms.append((zh, vi))
             
-            # 打印替换日志
             if replaced_terms:
                 print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
-                for zh, vi in replaced_terms[:3]:
-                    print(f"   📝 {zh} → {vi}")
             
-            # 构建API请求
             system_prompt = """你是一个专业的翻译助手，擅长中文和越南语之间的互译。
 你特别擅长机械加工、制造业领域的专业术语翻译。
 
@@ -333,14 +324,11 @@ class Translator:
             user_prompt = f"请将以下中文文本翻译成越南语。\n\n原文：{processed_text}\n\n翻译："
             
         else:
-            # ========== 用户术语强制保留（越→中） ==========
             user_terms_vi = self.term_manager.get_user_terms_vi()
             
-            # 1. 完全匹配检查
             if text in user_terms_vi:
                 return user_terms_vi[text]
             
-            # 2. 部分匹配：替换用户术语（按长度排序，优先匹配长词）
             sorted_terms = sorted(user_terms_vi.items(), key=lambda x: len(x[0]), reverse=True)
             for vi, zh in sorted_terms:
                 if vi in processed_text:
@@ -349,8 +337,6 @@ class Translator:
             
             if replaced_terms:
                 print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
-                for vi, zh in replaced_terms[:3]:
-                    print(f"   📝 {vi} → {zh}")
             
             system_prompt = """你是一个专业的翻译助手，擅长越南语和中文之间的互译。
 你特别擅长机械加工、制造业领域的专业术语翻译。
@@ -361,7 +347,6 @@ class Translator:
 3. 产品代码、编号等应该保留原样，不要翻译。"""
             user_prompt = f"请将以下越南语文本翻译成中文。\n\n原文：{processed_text}\n\n翻译："
         
-        # 调用API
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
@@ -405,7 +390,6 @@ class Translator:
 # ==================== Flask路由 ====================
 translator = Translator()
 
-# 完整的HTML模板（略，和之前一样）
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -443,6 +427,9 @@ HTML_TEMPLATE = """
         .btn-primary:disabled { background: #a0c4e8; cursor: not-allowed; }
         .btn-secondary { background: #f0f0f0; color: #333; }
         .btn-secondary:active { background: #e0e0e0; transform: scale(0.98); }
+        .btn-success { background: #52c41a; color: white; }
+        .btn-success:active { background: #45a818; transform: scale(0.98); }
+        .btn-success:disabled { background: #a8d88a; cursor: not-allowed; }
         .output { background: #f8f9fa; min-height: 100px; padding: 12px; border-radius: 8px; font-size: 16px; white-space: pre-wrap; word-wrap: break-word; border: 2px solid #e8e8e8; }
         .status { font-size: 14px; margin-top: 10px; padding: 8px 12px; border-radius: 6px; }
         .status-ready { color: #52c41a; background: #f6ffed; }
@@ -452,10 +439,36 @@ HTML_TEMPLATE = """
         .row { display: flex; gap: 10px; }
         .row .btn { flex: 1; }
         .term-count { font-size: 12px; color: #888; margin-top: 8px; }
+        .copy-toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #52c41a;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 999;
+            animation: fadeInDown 0.3s ease-out;
+            display: none;
+        }
+        .copy-toast.error {
+            background: #ff4d4f;
+        }
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
         @media (max-width: 400px) { body { padding: 10px; } .card { padding: 15px; } .title { font-size: 20px; } }
     </style>
 </head>
 <body>
+    <!-- Toast 通知 -->
+    <div id="toast" class="copy-toast">✅ 已复制到剪贴板！</div>
+
     <div class="card">
         <div class="title" id="titleText">🌐 中越翻译工具</div>
         <div class="subtitle" id="subtitleText">用户术语强制保留 · 100%准确</div>
@@ -494,6 +507,10 @@ HTML_TEMPLATE = """
     
     <div class="card">
         <div id="outputText" class="output">翻译结果将显示在这里...</div>
+        <br>
+        <button class="btn btn-success" id="copyBtn" onclick="copyResult()">
+            <span id="copyBtnLabel">📋 复制</span>
+        </button>
         <div id="status" class="status status-ready">✅ 就绪</div>
         <div class="term-count" id="termCount">📚 已加载 {{ term_count }} 条术语</div>
     </div>
@@ -502,6 +519,7 @@ HTML_TEMPLATE = """
         let currentLang = 'zh';
         let currentMode = 'cn_to_vi';
         let isTranslating = false;
+        let lastResult = '';
 
         const LANG = {
             "zh": {
@@ -510,6 +528,7 @@ HTML_TEMPLATE = """
                 "mode_cn": "中 → 越", "mode_vi": "越 → 中",
                 "placeholder": "请输入要翻译的文本...",
                 "translate": "🚀 翻译", "clear": "🗑️ 清空", "swap": "🔄 互换",
+                "copy": "📋 复制",
                 "output_placeholder": "翻译结果将显示在这里...",
                 "status_ready": "✅ 就绪", "status_translating": "🔄 正在翻译...",
                 "status_done": "✅ 翻译完成（用户术语已强制保留）",
@@ -523,6 +542,7 @@ HTML_TEMPLATE = """
                 "mode_cn": "Trung → Việt", "mode_vi": "Việt → Trung",
                 "placeholder": "Nhập văn bản cần dịch...",
                 "translate": "🚀 Dịch", "clear": "🗑️ Xóa", "swap": "🔄 Đổi chiều",
+                "copy": "📋 Sao chép",
                 "output_placeholder": "Kết quả dịch sẽ hiển thị ở đây...",
                 "status_ready": "✅ Sẵn sàng", "status_translating": "🔄 Đang dịch...",
                 "status_done": "✅ Dịch hoàn tất (đã giữ bắt buộc thuật ngữ)",
@@ -532,6 +552,60 @@ HTML_TEMPLATE = """
             }
         };
 
+        // ========== Toast 通知 ==========
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'copy-toast' + (isError ? ' error' : '');
+            toast.style.display = 'block';
+            clearTimeout(toast._hideTimer);
+            toast._hideTimer = setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2000);
+        }
+
+        // ========== 复制功能 ==========
+        function copyResult() {
+            const text = document.getElementById('outputText').textContent;
+            const t = LANG[currentLang];
+            
+            if (!text || text === t.output_placeholder || text.includes('⚠️') || text.includes('❌')) {
+                showToast(t.copy_fail, true);
+                return;
+            }
+            
+            // 使用现代 Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast(t.copy_success);
+                }).catch(() => {
+                    // 降级方案
+                    fallbackCopy(text, t);
+                });
+            } else {
+                fallbackCopy(text, t);
+            }
+        }
+
+        function fallbackCopy(text, t) {
+            // 创建临时 textarea
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast(t.copy_success);
+            } catch (e) {
+                showToast(t.copy_fail, true);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // ========== 语言切换 ==========
         function switchLang(lang) {
             currentLang = lang;
             document.getElementById('lang-zh').className = 'lang-btn' + (lang === 'zh' ? ' active' : '');
@@ -546,12 +620,19 @@ HTML_TEMPLATE = """
             document.getElementById('translateBtnLabel').textContent = t.translate;
             document.getElementById('clearBtnLabel').textContent = t.clear;
             document.getElementById('swapBtnLabel').textContent = t.swap;
+            document.getElementById('copyBtnLabel').textContent = t.copy;
             const statusEl = document.getElementById('status');
             if (statusEl.className.includes('status-ready')) {
                 statusEl.textContent = t.status_ready;
             }
+            // 更新输出占位符
+            const output = document.getElementById('outputText');
+            if (output.textContent === LANG['zh'].output_placeholder || output.textContent === LANG['vi'].output_placeholder) {
+                output.textContent = t.output_placeholder;
+            }
         }
 
+        // ========== 模式切换 ==========
         function setMode(mode) {
             currentMode = mode;
             document.getElementById('mode-cn').className = 'mode-btn' + (mode === 'cn_to_vi' ? ' active' : '');
@@ -562,12 +643,14 @@ HTML_TEMPLATE = """
             setMode(currentMode === 'cn_to_vi' ? 'vi_to_cn' : 'cn_to_vi');
         }
 
+        // ========== 状态更新 ==========
         function updateStatus(text, type) {
             const statusEl = document.getElementById('status');
             statusEl.textContent = text;
             statusEl.className = 'status ' + type;
         }
 
+        // ========== 翻译 ==========
         function translateText() {
             if (isTranslating) return;
             const text = document.getElementById('inputText').value;
@@ -591,6 +674,7 @@ HTML_TEMPLATE = """
             })
             .then(response => response.json())
             .then(data => {
+                lastResult = data.result;
                 document.getElementById('outputText').textContent = data.result;
                 if (data.error) {
                     updateStatus('❌ ' + data.error, 'status-error');
@@ -609,13 +693,16 @@ HTML_TEMPLATE = """
             });
         }
 
+        // ========== 清空 ==========
         function clearAll() {
             const t = LANG[currentLang];
             document.getElementById('inputText').value = '';
             document.getElementById('outputText').textContent = t.output_placeholder;
+            lastResult = '';
             updateStatus(t.status_clear, 'status-ready');
         }
 
+        // ========== 快捷键 ==========
         document.getElementById('inputText').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
