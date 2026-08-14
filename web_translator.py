@@ -1,5 +1,5 @@
-# web_translator.py - 完整中越互译Web版（双语界面）
-# 支持中文/越南语界面切换，从Excel加载词库
+# web_translator.py - 完整修复版
+# 适用于 Render 部署
 
 from flask import Flask, render_template_string, request, jsonify
 import requests
@@ -18,7 +18,7 @@ API_CONFIG = {
     "default_model": "hy3"
 }
 
-# Excel词库文件路径（Render部署时使用绝对路径）
+# Excel词库文件路径
 TERM_EXCEL_FILE = "词库20260812.xlsx"
 # =================================================
 
@@ -72,7 +72,6 @@ class TermManager:
         self.terms = self.load_terms()
     
     def load_terms(self):
-        """从Excel加载术语"""
         default_terms = {
             "zh_to_vi": {},
             "vi_to_zh": {}
@@ -109,7 +108,6 @@ class TermManager:
         except Exception as e:
             print(f"⚠️ 加载Excel失败: {e}")
         
-        # 如果Excel加载失败，使用内置默认术语
         print("📚 使用内置默认术语")
         default_terms = {
             "zh_to_vi": {
@@ -158,10 +156,7 @@ class TermManager:
                 "品种": "chủng loại",
                 "布": "vải",
                 "验布": "kiểm vải",
-                "检查布": "kiểm tra vải",
-                "皱条": "nếp nhăn",
-                "折皱": "hằn gấp",
-                "压痕": "hằn ép"
+                "检查布": "kiểm tra vải"
             },
             "vi_to_zh": {}
         }
@@ -291,7 +286,6 @@ class Translator:
         return final_text.strip()
     
     def translate(self, text, direction="cn_to_vi"):
-        """翻译主函数"""
         if not text.strip():
             return "⚠️ 请输入要翻译的文本"
         
@@ -316,9 +310,7 @@ class Translator:
 【重要规则】
 1. 原文中用【】标记的词汇已经是翻译好的目标语言（越南语），请直接保留原样，不要修改。
 2. 只翻译【】外的内容。
-3. 所有中文字符都必须翻译成越南语，不能保留任何中文字符。
-4. 中文的"等"应该翻译为 "..."
-5. 中文的逗号"、"应该翻译为越南语逗号", " """
+3. 所有中文字符都必须翻译成越南语，不能保留任何中文字符。"""
             
             user_prompt = f"请将以下中文文本翻译成越南语。\n\n原文：{processed_text}\n\n翻译："
             
@@ -340,9 +332,7 @@ class Translator:
 【重要规则】
 1. 原文中用【】标记的词汇已经是翻译好的目标语言（中文），请直接保留原样，不要修改。
 2. 只翻译【】外的内容。
-3. 产品代码、编号等应该保留原样，不要翻译。
-4. 中文翻译结果中，中文与中文之间不加空格，中文与代码/数字之间保留空格。
-5. 中文标点（，。、：；！？）前后不加空格。"""
+3. 产品代码、编号等应该保留原样，不要翻译。"""
             
             user_prompt = f"请将以下越南语文本翻译成中文。\n\n原文：{processed_text}\n\n翻译："
         
@@ -393,7 +383,7 @@ class Translator:
 # ==================== Flask路由 ====================
 translator = Translator()
 
-# HTML模板 - 双语界面版
+# HTML模板 - 完整版
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -647,52 +637,37 @@ HTML_TEMPLATE = """
         let currentMode = 'cn_to_vi';
         let isTranslating = false;
 
-        // ========== 语言切换 ==========
         function switchLang(lang) {
             currentLang = lang;
-            
             document.getElementById('lang-zh').className = 'lang-btn' + (lang === 'zh' ? ' active' : '');
             document.getElementById('lang-vi').className = 'lang-btn' + (lang === 'vi' ? ' active' : '');
-            
             const t = LANG[lang];
             document.getElementById('titleText').textContent = t.title;
             document.getElementById('subtitleText').textContent = t.subtitle;
             document.getElementById('langLabel').textContent = t.lang_label;
-            
             document.getElementById('modeCnLabel').textContent = t.mode_cn;
             document.getElementById('modeViLabel').textContent = t.mode_vi;
-            
             document.getElementById('inputText').placeholder = t.placeholder;
             document.getElementById('translateBtnLabel').textContent = t.translate;
             document.getElementById('clearBtnLabel').textContent = t.clear;
             document.getElementById('swapBtnLabel').textContent = t.swap;
-            
             const statusEl = document.getElementById('status');
             if (statusEl.className.includes('status-ready')) {
                 statusEl.textContent = t.status_ready;
             }
-            
             updateTermCount();
         }
 
-        // ========== 模式切换 ==========
         function setMode(mode) {
             currentMode = mode;
-            const t = LANG[currentLang];
             document.getElementById('mode-cn').className = 'mode-btn' + (mode === 'cn_to_vi' ? ' active' : '');
             document.getElementById('mode-vi').className = 'mode-btn' + (mode === 'vi_to_cn' ? ' active' : '');
-            document.getElementById('inputText').placeholder = t.placeholder;
         }
         
         function swapMode() {
-            if (currentMode === 'cn_to_vi') {
-                setMode('vi_to_cn');
-            } else {
-                setMode('cn_to_vi');
-            }
+            setMode(currentMode === 'cn_to_vi' ? 'vi_to_cn' : 'cn_to_vi');
         }
 
-        // ========== 状态更新 ==========
         function updateStatus(text, type) {
             const statusEl = document.getElementById('status');
             statusEl.textContent = text;
@@ -709,24 +684,19 @@ HTML_TEMPLATE = """
                 .catch(() => {});
         }
 
-        // ========== 翻译 ==========
         function translateText() {
             if (isTranslating) return;
-            
             const text = document.getElementById('inputText').value;
             const t = LANG[currentLang];
-            
             if (!text.trim()) {
                 document.getElementById('outputText').textContent = t.status_input_error;
                 updateStatus(t.status_input_error, 'status-error');
                 return;
             }
-            
             isTranslating = true;
             const btn = document.getElementById('translateBtn');
             btn.disabled = true;
             btn.querySelector('span').textContent = '⏳ ' + (currentLang === 'zh' ? '翻译中...' : 'Đang dịch...');
-            
             document.getElementById('outputText').textContent = '🔄 ' + (currentLang === 'zh' ? '翻译中...' : 'Đang dịch...');
             updateStatus(t.status_translating, 'status-translating');
             
@@ -755,7 +725,6 @@ HTML_TEMPLATE = """
             });
         }
 
-        // ========== 清空 ==========
         function clearAll() {
             const t = LANG[currentLang];
             document.getElementById('inputText').value = '';
@@ -763,11 +732,9 @@ HTML_TEMPLATE = """
             updateStatus(t.status_clear, 'status-ready');
         }
 
-        // ========== 重新加载术语 ==========
         function reloadTerms() {
             const t = LANG[currentLang];
             updateStatus('🔄 ' + (currentLang === 'zh' ? '正在重新加载术语...' : 'Đang tải lại thuật ngữ...'), 'status-translating');
-            
             fetch('/reload_terms', { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
@@ -783,7 +750,6 @@ HTML_TEMPLATE = """
                 });
         }
 
-        // ========== 快捷键 ==========
         document.getElementById('inputText').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
@@ -791,7 +757,6 @@ HTML_TEMPLATE = """
             }
         });
 
-        // ========== 初始化 ==========
         updateTermCount();
     </script>
 </body>
@@ -801,10 +766,4 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    term_count = len(translator.term_manager.get_all_terms())
-    return render_template_string(HTML_TEMPLATE, term_count=term_count)
-
-
-@app.route('/translate', methods=['POST'])
-def translate():
-    data = request.json
+    term_count = len(translator.term_manager
