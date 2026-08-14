@@ -753,7 +753,7 @@ HTML_TEMPLATE = """
         document.getElementById('inputText').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                translateText();
+# web_translator.py - 完整修复版
             }
         });
 
@@ -766,4 +766,53 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    term_count = len(translator.term_manager
+    term_count = len(translator.term_manager.get_all_terms())
+    return render_template_string(HTML_TEMPLATE, term_count=term_count)
+
+
+@app.route('/translate', methods=['POST'])
+def translate():
+    data = request.json
+    text = data.get('text', '')
+    direction = data.get('direction', 'cn_to_vi')
+    
+    if not text.strip():
+        return jsonify({'result': '⚠️ 请输入要翻译的文本', 'error': '请输入要翻译的文本'})
+    
+    try:
+        result = translator.translate(text, direction)
+        if result.startswith('❌') or result.startswith('⚠️'):
+            return jsonify({'result': result, 'error': result})
+        return jsonify({'result': result})
+    except Exception as e:
+        return jsonify({'result': f'❌ 翻译出错: {str(e)}', 'error': str(e)})
+
+
+@app.route('/reload_terms', methods=['POST'])
+def reload_terms():
+    try:
+        translator.term_manager = TermManager()
+        return jsonify({
+            'success': True,
+            'count': len(translator.term_manager.get_all_terms()),
+            'message': f'已重新加载 {len(translator.term_manager.get_all_terms())} 条术语'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/term_count')
+def term_count():
+    return jsonify({'count': len(translator.term_manager.get_all_terms())})
+
+
+if __name__ == '__main__':
+    term_count = len(translator.term_manager.get_all_terms())
+    print("=" * 50)
+    print("🌐 中越翻译工具 Web版")
+    print("=" * 50)
+    print(f"📚 已加载 {term_count} 条术语")
+    print("=" * 50)
+    # Render 使用环境变量 PORT
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
