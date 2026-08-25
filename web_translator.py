@@ -1,0 +1,897 @@
+# web_translator.py - 优化版（带缓存）
+# 用户术语强制保留，支持一键复制翻译结果
+
+from flask import Flask, render_template_string, request, jsonify
+import requests
+import json
+import re
+import os
+import csv
+from datetime import datetime, timedelta
+from collections import OrderedDict
+
+app = Flask(__name__)
+app.secret_key = 'translator_secret_key_2024'
+
+# ==================== 配置区域 ====================
+API_CONFIG = {
+    "base_url": "https://tokenhub-intl.tencentmaas.com/v1/chat/completions",
+    "api_key": "sk-sTs3bBB3kfhfml7buWfciNuUnoedJLGc2s7BQj2xdKA63x9K",
+    "default_model": "hy3"  # 可改为 deepseek-v4-flash 或 kimi-k2.7-code-highspeed
+}
+
+# CSV词库文件路径
+TERM_CSV_FILE = "词库20260812.csv"
+
+# ==================== 翻译缓存 ====================
+class TranslationCache:
+    """翻译缓存 - 减少重复API调用"""
+    
+    def __init__(self, max_size=100, expire_minutes=60):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+        self.expire_minutes = expire_minutes
+    
+    def get(self, key):
+        """获取缓存"""
+        if key in self.cache:
+            value, timestamp = self.cache[key]
+            # 检查是否过期
+            if datetime.now() - timestamp < timedelta(minutes=self.expire_minutes):
+                # 移到末尾（最近使用）
+                self.cache.move_to_end(key)
+                return value
+            else:
+                # 过期删除
+                del self.cache[key]
+        return None
+    
+    def set(self, key, value):
+        """设置缓存"""
+        if len(self.cache) >= self.max_size:
+            # 移除最旧的（第一个）
+            self.cache.popitem(last=False)
+        self.cache[key] = (value, datetime.now())
+    
+    def clear(self):
+        """清空缓存"""
+        self.cache.clear()
+    
+    def get_size(self):
+        return len(self.cache)
+
+# 创建全局缓存实例
+translation_cache = TranslationCache(max_size=200, expire_minutes=30)
+# =================================================
+
+# ==================== 术语管理器 ====================
+class TermManager:
+    def __init__(self, csv_file=None):
+        self.csv_file = csv_file or TERM_CSV_FILE
+        self.terms = self.load_terms()
+    
+    def load_terms(self):
+        terms = {
+            "zh_to_vi": {},
+            "vi_to_zh": {}
+        }
+        
+        try:
+            if os.path.exists(self.csv_file):
+                with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.reader(f)
+                    zh_col = None
+                    vi_col = None
+                    
+                    for row in reader:
+                        if not row:
+                            continue
+                        
+                        if len(row) >= 2:
+                            first_col = row[0].strip() if row[0] else ''
+                            if '中文' in first_col or '术语' in first_col:
+                                zh_col = 0
+                                vi_col = 1
+                                continue
+                        
+                        if zh_col is not None and vi_col is not None:
+                            if len(row) > max(zh_col, vi_col):
+                                zh = row[zh_col].strip() if zh_col < len(row) else ''
+                                vi = row[vi_col].strip() if vi_col < len(row) else ''
+                                if zh and vi and zh != '中文术语' and '中文' not in zh:
+                                    terms["zh_to_vi"][zh] = vi
+                                    if vi not in terms["vi_to_zh"]:
+                                        terms["vi_to_zh"][vi] = zh
+                
+                print(f"✅ 从CSV加载了 {len(terms['zh_to_vi'])} 条术语")
+            else:
+                print(f"⚠️ CSV文件不存在: {self.csv_file}")
+        except Exception as e:
+            print(f"⚠️ 加载CSV失败: {e}")
+        
+        if len(terms["zh_to_vi"]) == 0:
+            print("📚 使用内置默认术语")
+            default_terms = {
+                "zh_to_vi": {
+                    "车床": "máy tiện",
+                    "铣床": "máy phay",
+                    "磨床": "máy mài",
+                    "钻床": "máy khoan",
+                    "数控机床": "máy CNC",
+                    "加工中心": "trung tâm gia công",
+                    "冲床": "máy dập",
+                    "注塑机": "máy ép nhựa",
+                    "粗加工": "gia công thô",
+                    "精加工": "gia công tinh",
+                    "热处理": "xử lý nhiệt",
+                    "表面处理": "xử lý bề mặt",
+                    "焊接": "hàn",
+                    "装配": "lắp ráp",
+                    "调试": "hiệu chỉnh",
+                    "公差": "dung sai",
+                    "粗糙度": "độ nhám",
+                    "合格品": "sản phẩm đạt yêu cầu",
+                    "不合格品": "sản phẩm không đạt",
+                    "返工": "làm lại",
+                    "报废": "loại bỏ",
+                    "防护罩": "tấm chắn bảo vệ",
+                    "紧急停止": "dừng khẩn cấp",
+                    "安全操作规程": "quy trình vận hành an toàn",
+                    "劳保用品": "đồ bảo hộ lao động",
+                    "开机": "khởi động máy",
+                    "关机": "tắt máy",
+                    "检查": "kiểm tra",
+                    "更换": "thay thế",
+                    "清洁": "vệ sinh",
+                    "加油": "tra dầu",
+                    "注意": "chú ý",
+                    "危险": "nguy hiểm",
+                    "缝头压痕": "đầu may ép",
+                    "批次号": "số lô hàng",
+                    "稀密路": "đường dày ngang thưa",
+                    "染色不匀": "nhuộm màu không đều",
+                    "条影": "đường ảnh",
+                    "安排": "Sắp xếp",
+                    "包装": "đóng gói",
+                    "请优先": "xin ưu tiên",
+                    "提明细": "Lấy chi tiết",
+                    "品种": "chủng loại",
+                    "布": "vải",
+                    "验布": "kiểm vải",
+                    "检查布": "kiểm tra vải",
+                    "万国旗": "Cờ màu",
+                    "撤明细": "rút chi tiết"
+                },
+                "vi_to_zh": {}
+            }
+            for zh, vi in default_terms["zh_to_vi"].items():
+                default_terms["vi_to_zh"][vi] = zh
+            return default_terms
+        
+        return terms
+    
+    def get_user_terms(self):
+        return self.terms["zh_to_vi"]
+    
+    def get_user_terms_vi(self):
+        return self.terms["vi_to_zh"]
+    
+    def get_term_count(self):
+        return len(self.terms["zh_to_vi"])
+
+
+# ==================== 语言资源 ====================
+LANG = {
+    "zh": {
+        "title": "🌐 中越翻译工具",
+        "subtitle": "用户术语强制保留 · 100%准确",
+        "cn_to_vi": "中 → 越",
+        "vi_to_cn": "越 → 中",
+        "placeholder": "请输入要翻译的文本...",
+        "translate_btn": "🚀 翻译",
+        "clear_btn": "🗑️ 清空",
+        "swap_btn": "🔄 互换",
+        "copy_btn": "📋 复制",
+        "copy_success": "✅ 已复制到剪贴板！",
+        "copy_fail": "❌ 没有内容可复制",
+        "output_placeholder": "翻译结果将显示在这里...",
+        "status_ready": "✅ 就绪",
+        "status_translating": "🔄 正在翻译...",
+        "status_done": "✅ 翻译完成（用户术语已强制保留）",
+        "status_cache": "⚡ 从缓存读取（快速）",
+        "status_clear": "✅ 已清空",
+        "status_input_error": "⚠️ 请输入要翻译的文本",
+        "term_count": "📚 已加载 {count} 条术语",
+        "language": "🌐 界面语言:",
+        "cache_hit": "⚡ 缓存命中"
+    },
+    "vi": {
+        "title": "🌐 Công cụ dịch Trung-Việt",
+        "subtitle": "Giữ bắt buộc thuật ngữ · 100% chính xác",
+        "cn_to_vi": "Trung → Việt",
+        "vi_to_cn": "Việt → Trung",
+        "placeholder": "Nhập văn bản cần dịch...",
+        "translate_btn": "🚀 Dịch",
+        "clear_btn": "🗑️ Xóa",
+        "swap_btn": "🔄 Đổi chiều",
+        "copy_btn": "📋 Sao chép",
+        "copy_success": "✅ Đã sao chép vào bộ nhớ tạm!",
+        "copy_fail": "❌ Không có nội dung để sao chép",
+        "output_placeholder": "Kết quả dịch sẽ hiển thị ở đây...",
+        "status_ready": "✅ Sẵn sàng",
+        "status_translating": "🔄 Đang dịch...",
+        "status_done": "✅ Dịch hoàn tất (đã giữ bắt buộc thuật ngữ)",
+        "status_cache": "⚡ Đọc từ bộ nhớ cache (nhanh)",
+        "status_clear": "✅ Đã xóa",
+        "status_input_error": "⚠️ Vui lòng nhập văn bản cần dịch",
+        "term_count": "📚 Đã tải {count} thuật ngữ",
+        "language": "🌐 Ngôn ngữ giao diện:",
+        "cache_hit": "⚡ Cache"
+    }
+}
+# =================================================
+
+# ==================== 翻译器 ====================
+class Translator:
+    def __init__(self):
+        self.term_manager = TermManager()
+        self.api_key = API_CONFIG["api_key"]
+        self.base_url = API_CONFIG["base_url"]
+        self.default_model = API_CONFIG["default_model"]
+        # 可以切换为更快的模型
+        self.fast_model = "deepseek-v4-flash"  # 响应更快的模型
+    
+    def get_term_count(self):
+        return self.term_manager.get_term_count()
+    
+    def _smart_replace_term_cn_to_vi(self, text, zh, vi):
+        pattern = r'(?<![a-zA-Z\u00C0-\u024F])' + re.escape(zh) + r'(?![a-zA-Z\u00C0-\u024F])'
+        replacement = f' {vi} '
+        new_text = re.sub(pattern, replacement, text)
+        new_text = re.sub(r' +', ' ', new_text)
+        new_text = re.sub(r' ([,.;:!?])', r'\1', new_text)
+        return new_text.strip()
+    
+    def _smart_replace_term_vi_to_cn(self, text, vi, zh):
+        escaped_vi = re.escape(vi)
+        pattern = r'(?<![a-zA-Z\u00C0-\u024F])' + escaped_vi + r'(?![a-zA-Z\u00C0-\u024F])'
+        replacement = f' {zh} '
+        new_text = re.sub(pattern, replacement, text)
+        new_text = re.sub(r' +', ' ', new_text)
+        new_text = re.sub(r' ([,.;:!?])', r'\1', new_text)
+        return new_text.strip()
+    
+    def _clean_spaces(self, text):
+        text = re.sub(r' +', ' ', text)
+        text = re.sub(r' ([,.;:!?])', r'\1', text)
+        text = re.sub(r'([,.;:!?]) ', r'\1 ', text)
+        text = text.replace('，', ', ')
+        text = re.sub(r'\s*,\s*', ', ', text)
+        text = re.sub(r'\s*\.\s*', '. ', text)
+        text = re.sub(r'\s*:\s*', ': ', text)
+        text = re.sub(r'\s*;\s*', '; ', text)
+        text = re.sub(r' +', ' ', text)
+        return text.strip()
+    
+    def _translate_chinese_chars(self, text):
+        text = text.replace('。', '. ')
+        text = text.replace('，', ', ')
+        text = text.replace('、', ', ')
+        text = text.replace('：', ': ')
+        text = text.replace('；', '; ')
+        text = text.replace('？', '? ')
+        text = text.replace('！', '! ')
+        text = re.sub(r'等\s*', '... ', text)
+        return text
+    
+    def _is_chinese_char(self, char):
+        return '\u4e00' <= char <= '\u9fff'
+    
+    def _is_code_or_number(self, text):
+        patterns = [
+            r'^[A-Z0-9\-_]+$',
+            r'^[A-Za-z0-9\-_]+$',
+            r'^[0-9]+$',
+        ]
+        for pattern in patterns:
+            if re.match(pattern, text.strip()):
+                return True
+        return False
+    
+    def _optimize_chinese_spacing(self, text):
+        if not text:
+            return text
+        parts = text.split(' ')
+        result = []
+        i = 0
+        while i < len(parts):
+            current = parts[i]
+            if self._is_code_or_number(current):
+                result.append(current)
+                i += 1
+                continue
+            has_chinese = any(self._is_chinese_char(c) for c in current)
+            if has_chinese:
+                combined = current
+                j = i + 1
+                while j < len(parts):
+                    next_part = parts[j]
+                    if self._is_code_or_number(next_part):
+                        break
+                    if any(self._is_chinese_char(c) for c in next_part):
+                        combined += next_part
+                        j += 1
+                    else:
+                        break
+                result.append(combined)
+                i = j
+            else:
+                result.append(current)
+                i += 1
+        final_text = ' '.join(result)
+        final_text = re.sub(r' +', ' ', final_text)
+        final_text = re.sub(r' ([，。、：；！？])', r'\1', final_text)
+        final_text = re.sub(r'([，。、：；！？]) ', r'\1', final_text)
+        final_text = re.sub(r' ([,.;:!?])', r'\1', final_text)
+        final_text = re.sub(r'([,.;:!?])([^ ])', r'\1 \2', final_text)
+        return final_text.strip()
+    
+    def _call_api(self, processed_text, system_prompt, user_prompt, use_fast_model=False):
+        """调用API"""
+        model = self.fast_model if use_fast_model else self.default_model
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        data = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 500,  # 减少token数，加快响应
+            "stream": False
+        }
+        
+        try:
+            # 使用更短的超时时间
+            response = requests.post(self.base_url, headers=headers, json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result and len(result["choices"]) > 0:
+                    return result["choices"][0]["message"]["content"].strip()
+            return None
+        except Exception as e:
+            print(f"API调用失败: {e}")
+            return None
+    
+    def translate(self, text, direction="cn_to_vi"):
+        if not text.strip():
+            return "⚠️ 请输入要翻译的文本"
+        
+        # ========== 生成缓存键 ==========
+        cache_key = f"{direction}:{text}"
+        
+        # ========== 检查缓存 ==========
+        cached_result = translation_cache.get(cache_key)
+        if cached_result:
+            print(f"⚡ 缓存命中: {text[:30]}...")
+            return cached_result
+        
+        processed_text = text
+        replaced_terms = []
+        
+        if direction == "cn_to_vi":
+            user_terms = self.term_manager.get_user_terms()
+            
+            # 完全匹配检查
+            if text in user_terms:
+                result = user_terms[text]
+                translation_cache.set(cache_key, result)
+                return result
+            
+            # 部分匹配
+            sorted_terms = sorted(user_terms.items(), key=lambda x: len(x[0]), reverse=True)
+            for zh, vi in sorted_terms:
+                if zh in processed_text:
+                    processed_text = self._smart_replace_term_cn_to_vi(processed_text, zh, f"【{vi}】")
+                    replaced_terms.append((zh, vi))
+            
+            if replaced_terms:
+                print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
+            
+            system_prompt = """你是一个专业的翻译助手，擅长中文和越南语之间的互译。
+你特别擅长机械加工、制造业领域的专业术语翻译。
+
+【重要规则】
+1. 原文中用【】标记的词汇已经是翻译好的目标语言（越南语），请直接保留原样，不要修改。
+2. 只翻译【】外的内容。
+3. 所有中文字符都必须翻译成越南语，不能保留任何中文字符。"""
+            user_prompt = f"请将以下中文文本翻译成越南语。\n\n原文：{processed_text}\n\n翻译："
+            
+        else:
+            user_terms_vi = self.term_manager.get_user_terms_vi()
+            
+            if text in user_terms_vi:
+                result = user_terms_vi[text]
+                translation_cache.set(cache_key, result)
+                return result
+            
+            sorted_terms = sorted(user_terms_vi.items(), key=lambda x: len(x[0]), reverse=True)
+            for vi, zh in sorted_terms:
+                if vi in processed_text:
+                    processed_text = self._smart_replace_term_vi_to_cn(processed_text, vi, f"【{zh}】")
+                    replaced_terms.append((vi, zh))
+            
+            if replaced_terms:
+                print(f"🔄 替换了 {len(replaced_terms)} 个用户术语")
+            
+            system_prompt = """你是一个专业的翻译助手，擅长越南语和中文之间的互译。
+你特别擅长机械加工、制造业领域的专业术语翻译。
+
+【重要规则】
+1. 原文中用【】标记的词汇已经是翻译好的目标语言（中文），请直接保留原样，不要修改。
+2. 只翻译【】外的内容。
+3. 产品代码、编号等应该保留原样，不要翻译。"""
+            user_prompt = f"请将以下越南语文本翻译成中文。\n\n原文：{processed_text}\n\n翻译："
+        
+        # ========== 调用API ==========
+        # 先尝试使用快速模型
+        translation = self._call_api(processed_text, system_prompt, user_prompt, use_fast_model=True)
+        
+        # 如果快速模型失败，使用默认模型
+        if translation is None:
+            print("🔄 快速模型失败，使用默认模型...")
+            translation = self._call_api(processed_text, system_prompt, user_prompt, use_fast_model=False)
+        
+        if translation is None:
+            return "❌ 翻译服务暂时不可用，请稍后重试"
+        
+        # 清理结果
+        if translation.startswith("翻译："):
+            translation = translation[3:].strip()
+        translation = translation.replace("【", "").replace("】", "")
+        translation = self._clean_spaces(translation)
+        if direction == "cn_to_vi":
+            translation = self._translate_chinese_chars(translation)
+        else:
+            translation = self._optimize_chinese_spacing(translation)
+        
+        # ========== 保存到缓存 ==========
+        translation_cache.set(cache_key, translation)
+        
+        return translation
+
+
+# ==================== Flask路由 ====================
+translator = Translator()
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>中越翻译工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f4f8;
+            padding: 20px;
+            max-width: 500px;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+        .card { background: white; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .title { font-size: 24px; font-weight: bold; color: #4A90D9; text-align: center; }
+        .subtitle { font-size: 12px; color: #888; text-align: center; margin-top: 4px; }
+        .lang-switch { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 12px; background: #f5f7fa; border-radius: 8px; }
+        .lang-btn { padding: 6px 18px; border: 2px solid #d9d9d9; border-radius: 6px; background: white; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s; }
+        .lang-btn.active { border-color: #4A90D9; background: #e8f0fe; color: #4A90D9; }
+        .lang-btn:active { transform: scale(0.95); }
+        .lang-label { font-size: 14px; color: #666; }
+        .mode-switch { display: flex; gap: 10px; margin: 15px 0; }
+        .mode-btn { flex: 1; padding: 12px; border: 2px solid #d9d9d9; border-radius: 8px; background: white; font-size: 16px; cursor: pointer; transition: all 0.3s; font-weight: normal; }
+        .mode-btn.active { border-color: #4A90D9; background: #e8f0fe; color: #4A90D9; font-weight: bold; }
+        .mode-btn:active { transform: scale(0.97); }
+        textarea { width: 100%; padding: 12px; border: 2px solid #d9d9d9; border-radius: 8px; font-size: 16px; min-height: 100px; font-family: inherit; resize: vertical; transition: border-color 0.3s; }
+        textarea:focus { outline: none; border-color: #4A90D9; }
+        .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.3s; }
+        .btn-primary { background: #4A90D9; color: white; }
+        .btn-primary:active { background: #3a7bc8; transform: scale(0.98); }
+        .btn-primary:disabled { background: #a0c4e8; cursor: not-allowed; }
+        .btn-secondary { background: #f0f0f0; color: #333; }
+        .btn-secondary:active { background: #e0e0e0; transform: scale(0.98); }
+        .btn-success { background: #52c41a; color: white; }
+        .btn-success:active { background: #45a818; transform: scale(0.98); }
+        .btn-success:disabled { background: #a8d88a; cursor: not-allowed; }
+        .btn-cache { background: #faad14; color: white; }
+        .btn-cache:active { background: #e09e12; transform: scale(0.98); }
+        .output { background: #f8f9fa; min-height: 100px; padding: 12px; border-radius: 8px; font-size: 16px; white-space: pre-wrap; word-wrap: break-word; border: 2px solid #e8e8e8; }
+        .status { font-size: 14px; margin-top: 10px; padding: 8px 12px; border-radius: 6px; }
+        .status-ready { color: #52c41a; background: #f6ffed; }
+        .status-translating { color: #faad14; background: #fffbe6; }
+        .status-done { color: #52c41a; background: #f6ffed; }
+        .status-cache { color: #faad14; background: #fffbe6; }
+        .status-error { color: #ff4d4f; background: #fff2f0; }
+        .row { display: flex; gap: 10px; }
+        .row .btn { flex: 1; }
+        .term-count { font-size: 12px; color: #888; margin-top: 8px; }
+        .copy-toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #52c41a;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 999;
+            animation: fadeInDown 0.3s ease-out;
+            display: none;
+        }
+        .copy-toast.error { background: #ff4d4f; }
+        .copy-toast.info { background: #faad14; }
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        .cache-badge {
+            display: inline-block;
+            background: #faad14;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 8px;
+        }
+        .speed-info {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        @media (max-width: 400px) { body { padding: 10px; } .card { padding: 15px; } .title { font-size: 20px; } }
+    </style>
+</head>
+<body>
+    <div id="toast" class="copy-toast">✅ 已复制到剪贴板！</div>
+
+    <div class="card">
+        <div class="title" id="titleText">🌐 中越翻译工具</div>
+        <div class="subtitle" id="subtitleText">用户术语强制保留 · 100%准确 <span class="cache-badge">⚡ 缓存加速</span></div>
+        <div class="lang-switch">
+            <span class="lang-label" id="langLabel">🌐 界面语言:</span>
+            <button class="lang-btn active" id="lang-zh" onclick="switchLang('zh')">中文</button>
+            <button class="lang-btn" id="lang-vi" onclick="switchLang('vi')">Tiếng Việt</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="mode-switch">
+            <button class="mode-btn active" id="mode-cn" onclick="setMode('cn_to_vi')">
+                <span id="modeCnLabel">中 → 越</span>
+            </button>
+            <button class="mode-btn" id="mode-vi" onclick="setMode('vi_to_cn')">
+                <span id="modeViLabel">越 → 中</span>
+            </button>
+        </div>
+        
+        <textarea id="inputText" placeholder="请输入要翻译的文本..." rows="3"></textarea>
+        <br><br>
+        <button class="btn btn-primary" id="translateBtn" onclick="translateText()">
+            <span id="translateBtnLabel">🚀 翻译</span>
+        </button>
+        <br><br>
+        <div class="row">
+            <button class="btn btn-secondary" id="clearBtn" onclick="clearAll()">
+                <span id="clearBtnLabel">🗑️ 清空</span>
+            </button>
+            <button class="btn btn-secondary" id="swapBtn" onclick="swapMode()">
+                <span id="swapBtnLabel">🔄 互换</span>
+            </button>
+            <button class="btn btn-cache" id="clearCacheBtn" onclick="clearCache()" title="清空缓存">
+                🗑️ 缓存
+            </button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div id="outputText" class="output">翻译结果将显示在这里...</div>
+        <br>
+        <div class="row">
+            <button class="btn btn-success" id="copyBtn" onclick="copyResult()">
+                <span id="copyBtnLabel">📋 复制</span>
+            </button>
+        </div>
+        <div id="status" class="status status-ready">✅ 就绪</div>
+        <div class="term-count" id="termCount">📚 已加载 {{ term_count }} 条术语</div>
+        <div class="speed-info" id="cacheInfo">⚡ 缓存大小: 0 条</div>
+    </div>
+
+    <script>
+        let currentLang = 'zh';
+        let currentMode = 'cn_to_vi';
+        let isTranslating = false;
+        let lastResult = '';
+
+        const LANG = {
+            "zh": {
+                "title": "🌐 中越翻译工具",
+                "subtitle": "用户术语强制保留 · 100%准确",
+                "mode_cn": "中 → 越", "mode_vi": "越 → 中",
+                "placeholder": "请输入要翻译的文本...",
+                "translate": "🚀 翻译", "clear": "🗑️ 清空", "swap": "🔄 互换",
+                "copy": "📋 复制",
+                "output_placeholder": "翻译结果将显示在这里...",
+                "status_ready": "✅ 就绪", "status_translating": "🔄 正在翻译...",
+                "status_done": "✅ 翻译完成（用户术语已强制保留）",
+                "status_cache": "⚡ 从缓存读取（快速）",
+                "status_clear": "✅ 已清空", "status_input_error": "⚠️ 请输入要翻译的文本",
+                "term_count": "📚 已加载 {count} 条术语",
+                "lang_label": "🌐 界面语言:"
+            },
+            "vi": {
+                "title": "🌐 Công cụ dịch Trung-Việt",
+                "subtitle": "Giữ bắt buộc thuật ngữ · 100% chính xác",
+                "mode_cn": "Trung → Việt", "mode_vi": "Việt → Trung",
+                "placeholder": "Nhập văn bản cần dịch...",
+                "translate": "🚀 Dịch", "clear": "🗑️ Xóa", "swap": "🔄 Đổi chiều",
+                "copy": "📋 Sao chép",
+                "output_placeholder": "Kết quả dịch sẽ hiển thị ở đây...",
+                "status_ready": "✅ Sẵn sàng", "status_translating": "🔄 Đang dịch...",
+                "status_done": "✅ Dịch hoàn tất (đã giữ bắt buộc thuật ngữ)",
+                "status_cache": "⚡ Đọc từ bộ nhớ cache (nhanh)",
+                "status_clear": "✅ Đã xóa", "status_input_error": "⚠️ Vui lòng nhập văn bản cần dịch",
+                "term_count": "📚 Đã tải {count} thuật ngữ",
+                "lang_label": "🌐 Ngôn ngữ giao diện:"
+            }
+        };
+
+        // ========== Toast 通知 ==========
+        function showToast(message, isError = false, isInfo = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'copy-toast';
+            if (isError) toast.className += ' error';
+            if (isInfo) toast.className += ' info';
+            toast.style.display = 'block';
+            clearTimeout(toast._hideTimer);
+            toast._hideTimer = setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2000);
+        }
+
+        // ========== 复制功能 ==========
+        function copyResult() {
+            const text = document.getElementById('outputText').textContent;
+            const t = LANG[currentLang];
+            if (!text || text === t.output_placeholder || text.includes('⚠️') || text.includes('❌')) {
+                showToast(t.copy_fail, true);
+                return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast(t.copy_success);
+                }).catch(() => {
+                    fallbackCopy(text, t);
+                });
+            } else {
+                fallbackCopy(text, t);
+            }
+        }
+
+        function fallbackCopy(text, t) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast(t.copy_success);
+            } catch (e) {
+                showToast(t.copy_fail, true);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // ========== 清除缓存 ==========
+        function clearCache() {
+            fetch('/clear_cache', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    const t = LANG[currentLang];
+                    showToast('🗑️ ' + (currentLang === 'zh' ? '缓存已清空' : 'Đã xóa cache'), false, true);
+                    document.getElementById('cacheInfo').textContent = '⚡ 缓存大小: 0 条';
+                })
+                .catch(() => {});
+        }
+
+        // ========== 语言切换 ==========
+        function switchLang(lang) {
+            currentLang = lang;
+            document.getElementById('lang-zh').className = 'lang-btn' + (lang === 'zh' ? ' active' : '');
+            document.getElementById('lang-vi').className = 'lang-btn' + (lang === 'vi' ? ' active' : '');
+            const t = LANG[lang];
+            document.getElementById('titleText').textContent = t.title;
+            document.getElementById('subtitleText').textContent = t.subtitle;
+            document.getElementById('langLabel').textContent = t.lang_label;
+            document.getElementById('modeCnLabel').textContent = t.mode_cn;
+            document.getElementById('modeViLabel').textContent = t.mode_vi;
+            document.getElementById('inputText').placeholder = t.placeholder;
+            document.getElementById('translateBtnLabel').textContent = t.translate;
+            document.getElementById('clearBtnLabel').textContent = t.clear;
+            document.getElementById('swapBtnLabel').textContent = t.swap;
+            document.getElementById('copyBtnLabel').textContent = t.copy;
+            const statusEl = document.getElementById('status');
+            if (statusEl.className.includes('status-ready')) {
+                statusEl.textContent = t.status_ready;
+            }
+            const output = document.getElementById('outputText');
+            if (output.textContent === LANG['zh'].output_placeholder || output.textContent === LANG['vi'].output_placeholder) {
+                output.textContent = t.output_placeholder;
+            }
+        }
+
+        // ========== 模式切换 ==========
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('mode-cn').className = 'mode-btn' + (mode === 'cn_to_vi' ? ' active' : '');
+            document.getElementById('mode-vi').className = 'mode-btn' + (mode === 'vi_to_cn' ? ' active' : '');
+        }
+        
+        function swapMode() {
+            setMode(currentMode === 'cn_to_vi' ? 'vi_to_cn' : 'cn_to_vi');
+        }
+
+        function updateStatus(text, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = text;
+            statusEl.className = 'status ' + type;
+        }
+
+        function updateCacheInfo() {
+            fetch('/cache_info')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('cacheInfo').textContent = '⚡ 缓存大小: ' + data.size + ' 条';
+                })
+                .catch(() => {});
+        }
+
+        // ========== 翻译 ==========
+        function translateText() {
+            if (isTranslating) return;
+            const text = document.getElementById('inputText').value;
+            const t = LANG[currentLang];
+            if (!text.trim()) {
+                document.getElementById('outputText').textContent = t.status_input_error;
+                updateStatus(t.status_input_error, 'status-error');
+                return;
+            }
+            isTranslating = true;
+            const btn = document.getElementById('translateBtn');
+            btn.disabled = true;
+            btn.querySelector('span').textContent = '⏳ ' + (currentLang === 'zh' ? '翻译中...' : 'Đang dịch...');
+            document.getElementById('outputText').textContent = '🔄 ' + (currentLang === 'zh' ? '翻译中...' : 'Đang dịch...');
+            updateStatus(t.status_translating, 'status-translating');
+            
+            fetch('/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text, direction: currentMode })
+            })
+            .then(response => response.json())
+            .then(data => {
+                lastResult = data.result;
+                document.getElementById('outputText').textContent = data.result;
+                if (data.cache_hit) {
+                    updateStatus(t.status_cache, 'status-cache');
+                } else if (data.error) {
+                    updateStatus('❌ ' + data.error, 'status-error');
+                } else {
+                    updateStatus(t.status_done, 'status-done');
+                }
+                // 更新缓存信息
+                updateCacheInfo();
+            })
+            .catch(error => {
+                document.getElementById('outputText').textContent = '❌ ' + (currentLang === 'zh' ? '翻译失败: ' : 'Dịch thất bại: ') + error;
+                updateStatus('❌ ' + (currentLang === 'zh' ? '翻译失败' : 'Dịch thất bại'), 'status-error');
+            })
+            .finally(() => {
+                isTranslating = false;
+                btn.disabled = false;
+                btn.querySelector('span').textContent = t.translate;
+            });
+        }
+
+        // ========== 清空 ==========
+        function clearAll() {
+            const t = LANG[currentLang];
+            document.getElementById('inputText').value = '';
+            document.getElementById('outputText').textContent = t.output_placeholder;
+            lastResult = '';
+            updateStatus(t.status_clear, 'status-ready');
+        }
+
+        // ========== 快捷键 ==========
+        document.getElementById('inputText').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                translateText();
+            }
+        });
+
+        // 定期更新缓存信息
+        setInterval(updateCacheInfo, 30000);
+        updateCacheInfo();
+    </script>
+</body>
+</html>
+"""
+
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE, term_count=translator.get_term_count())
+
+
+@app.route('/translate', methods=['POST'])
+def translate():
+    data = request.json
+    text = data.get('text', '')
+    direction = data.get('direction', 'cn_to_vi')
+    
+    if not text.strip():
+        return jsonify({'result': '⚠️ 请输入要翻译的文本', 'error': '请输入要翻译的文本'})
+    
+    # 检查缓存
+    cache_key = f"{direction}:{text}"
+    cached_result = translation_cache.get(cache_key)
+    if cached_result:
+        return jsonify({'result': cached_result, 'cache_hit': True})
+    
+    try:
+        result = translator.translate(text, direction)
+        if result.startswith('❌') or result.startswith('⚠️'):
+            return jsonify({'result': result, 'error': result})
+        return jsonify({'result': result})
+    except Exception as e:
+        return jsonify({'result': f'❌ 翻译出错: {str(e)}', 'error': str(e)})
+
+
+@app.route('/cache_info')
+def cache_info():
+    return jsonify({'size': translation_cache.get_size()})
+
+
+@app.route('/clear_cache', methods=['POST'])
+def clear_cache():
+    translation_cache.clear()
+    return jsonify({'success': True})
+
+
+@app.route('/term_count')
+def term_count():
+    return jsonify({'count': translator.get_term_count()})
+
+
+if __name__ == '__main__':
+    print("=" * 50)
+    print("🌐 中越翻译工具 Web版 (优化版)")
+    print("=" * 50)
+    print(f"📚 已加载 {translator.get_term_count()} 条术语")
+    print(f"⚡ 缓存已启用: 最大200条, 过期30分钟")
+    print(f"🚀 快速模型: {translator.fast_model}")
+    print("=" * 50)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
