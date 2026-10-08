@@ -183,7 +183,7 @@ PE膜包装机,Máy đóng bọc PE
 看荧光,xem huỳnh quang
 考核,Khảo hạch
 考试,kiểm tra
-克重（GSM）,"Số cân (trọng lượng)
+克重（GSM）,định lượng vải (g/m²)
 Gram/m² (GSM)"
 客户,khách hàng
 客户反馈,Khách hàng phản hồi
@@ -440,7 +440,7 @@ PE 膜,bọc PE
 竹节,Đốt trúc
 结头,Đầu thắt
 棉球,Cầu bông
-滑脱,LỖI TUỘI
+滑脱,Lỗi tuột
 沾色,Dính màu
 长毛边,Lông biên dài
 破边,Thủng biên
@@ -698,8 +698,8 @@ tuột"
 密度,mật độ
 洗后外观,bề ngoài sau giặt
 水洗尺寸变化率,sự co lại giặt nước
-断裂强力,cường lực bức kéo
-撕破强力,cường lực bức xé
+断裂强力,cường lực lực đứt
+撕破强力,cường lực lực xé
 缝线滑移,trượt đường may
 缝线强力,cường lực đường may
 耐洗色牢度,độ bền màu chịu giặt
@@ -724,13 +724,13 @@ pH值,ph
 防水-滴水,chống nước
 防油,chống dầu
 易去污,chống bẩn
-折皱恢复角,phục hồi nếp nhăn
+折皱恢复角,góc phục hồi nếp nhăn
 钩丝,móc sợi
 耐光色牢度,độ bền màu với ánh sáng
 防水-喷淋,chống nước
 防污性,tính chống bẩn
 耐氯漂色牢度,tẩy clo
-芯吸法, hút nước trung tâm
+芯吸法, phương pháp thấm mao dẫn/hút nước trung tâm
 碱含量,hàm lượng kiềm
 识别染色,phân biệt nhuộm màu
 实验室,phòng thí nghiệm
