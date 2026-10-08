@@ -75,7 +75,7 @@ PE膜包装机,Máy đóng bọc PE
 参观,tham quan
 餐厅,nhà ăn
 操作质量员,thao tác chất lượng viên
-厕所,"tolet, nhà vệ sinh, wc"
+厕所,nhà vệ sinh
 测量,đo lượng
 测长轮,Bánh đo dài
 查系统,Kiểm tra hệ thống
@@ -187,7 +187,7 @@ PE膜包装机,Máy đóng bọc PE
 Gram/m² (GSM)"
 客户,khách hàng
 客户反馈,Khách hàng phản hồi
-空调,máy lẠnh
+空调,máy lạnh 
 空压机,máy nén khí
 口罩,khẩu trang
 快,nhanh
@@ -712,11 +712,11 @@ tuột"
 磨损性,tính mài mòn
 弹性伸长率,tỉ lệ kéo dài
 弹性回复率,tỉ lệ hồi phục
-弹性残留率,tỉ lệ vết hằn
+弹性残留率,tỉ lệ biến dạng dư
 pH值,ph
 甲醛,nồng độ formaldehyde
 耐水斑色牢度/水印,vết nước
-酚黄变色,biến màu phetanol
+酚黄变色,biến màu phenol
 热缩,sự co lại áp nóng
 起毛起球,xù lông
 吸水速干,hút nước khô nhanh
@@ -726,11 +726,11 @@ pH值,ph
 易去污,chống bẩn
 折皱恢复角,phục hồi nếp nhăn
 钩丝,móc sợi
-耐光色牢度,mặt trời 
+耐光色牢度,độ bền màu với ánh sáng
 防水-喷淋,chống nước
-防污性,chống dầu hồng
+防污性,tính chống bẩn
 耐氯漂色牢度,tẩy clo
-芯吸法,hút nước trung tâm
+芯吸法, hút nước trung tâm
 碱含量,hàm lượng kiềm
 识别染色,phân biệt nhuộm màu
 实验室,phòng thí nghiệm
