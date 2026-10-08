@@ -695,3 +695,163 @@ tuột"
 太浅,quá nhạt
 太深,quá đậm
 合同编号,hợp đồng mua bán
+密度,mật độ
+洗后外观,bề ngoài sau giặt
+水洗尺寸变化率,sự co lại giặt nước
+断裂强力,cường lực bức kéo
+撕破强力,cường lực bức xé
+缝线滑移,trượt đường may
+缝线强力,cường lực đường may
+耐洗色牢度,độ bền màu chịu giặt
+耐汗渍色牢度,độ bền màu chịu mồ hôi
+耐水色牢度,độ bền màu chịu nước
+耐热压色牢度,độ bền màu chịu áp nóng
+耐摩擦色牢度,độ bền màu chịu ma sát
+移染,chuyển nhuộm
+洗后扭曲,sợi ngang nghiêng sau giặt
+磨损性,tính mài mòn
+弹性伸长率,tỉ lệ kéo dài
+弹性回复率,tỉ lệ hồi phục
+弹性残留率,tỉ lệ vết hằn
+pH值,ph
+甲醛,nồng độ formaldehyde
+耐水斑色牢度/水印,vết nước
+酚黄变色,biến màu phetanol
+热缩,sự co lại áp nóng
+起毛起球,xù lông
+吸水速干,hút nước khô nhanh
+吸水性,hút nước
+防水-滴水,chống nước
+防油,chống dầu
+易去污,chống bẩn
+折皱恢复角,phục hồi nếp nhăn
+钩丝,móc sợi
+耐光色牢度,mặt trời 
+防水-喷淋,chống nước
+防污性,chống dầu hồng
+耐氯漂色牢度,tẩy clo
+芯吸法,hút nước trung tâm
+碱含量,hàm lượng kiềm
+识别染色,phân biệt nhuộm màu
+实验室,phòng thí nghiệm
+测试,thử nghiệm
+检测,kiểm tra
+测试方法,phương pháp thử
+测试标准,tiêu chuẩn thử
+测试项目,hạng mục thử nghiệm
+测试要求,yêu cầu thử nghiệm
+测试条件,điều kiện thử nghiệm
+测试步骤,các bước thử nghiệm
+测试结果,kết quả thử nghiệm
+样品,mẫu
+试样,mẫu thử
+取样,lấy mẫu
+裁样,cắt mẫu
+样品编号,mã/số mẫu
+试样尺寸,kích thước mẫu thử
+仪器,thiết bị đo
+设备,thiết bị
+仪器编号,mã số thiết bị
+校准,hiệu chuẩn
+核查,kiểm tra xác nhận
+校准证书,chứng chỉ hiệu chuẩn
+有效期,thời hạn hiệu lực
+操作,thao tác
+操作步骤,các bước thao tác
+设置,cài đặt
+调整,điều chỉnh
+检查,kiểm tra
+记录,ghi chép
+原始记录,ghi chép ban đầu
+原始数据,dữ liệu gốc
+测试数据,dữ liệu thử nghiệm
+测试值,giá trị thử nghiệm
+平均值,giá trị trung bình
+单位,đơn vị
+结果,kết quả
+判定,phán định
+合格,đạt
+不合格,không đạt
+仪器,thiết bị đo
+设备,thiết bị
+测试仪器,thiết bị thử nghiệm
+测试设备,thiết bị thử nghiệm
+仪器名称,tên thiết bị
+仪器型号,model thiết bị
+仪器编号,mã thiết bị
+设备状态,tình trạng thiết bị
+使用状态,tình trạng sử dụng
+正常,bình thường
+异常,bất thường
+开机,mở máy
+关机,tắt máy
+启动,khởi động
+停止,dừng
+清洁,vệ sinh
+维护,bảo trì
+保养,bảo dưỡng
+故障,sự cố
+面料检验单据,phiếu kiểm nghiệm vải
+报告编号,số báo cáo
+工艺卡号,số thẻ công nghệ
+客户合同号,mã số hợp đồng
+面料编码,mã vải
+颜色号,mã màu
+预缩机台号,số máy co lại trước
+编制人,người lập
+检验次数,số lần kiểm nghiệm
+编制日期,ngày lập
+生产类型,loại hình sản xuất
+再加工,tái gia công
+判定人,người phán định
+判定日期,ngày phán định
+最终客户,khách hàng cuối cùng
+开证标记,ký hiệu chứng từ
+审核人,người xét duyệt
+目的港,cảng đích
+组织规格,quy cách tổ chức vải
+报检数量,số lượng báo kiểm
+整理方式,phương thức chỉnh lí
+起泡,nổi phao
+成份,thành phần
+检验结果,kết quả kiểm nghiệm
+质量标准,tiêu chuẩn chất lượng
+品质判定,phán định chất lượng
+审核日期,ngày xét duyệt
+特殊提示,lưu ý đặc biệt
+备注信息,thông tin chú ý
+织物组织,kiểu dệt / cấu trúc vải
+应用场景,mục đích sử dụng
+理论克重,trọng lượng lý thuyết
+手织样,mẫu dệt tay
+严控,kiểm soát nghiêm ngặt
+颜色,màu sắc
+缩水,sự co rút
+效果,hiệu quả
+大货,hàng lớn
+短装报告,báo cáo thiếu đóng gói
+短交期,giao hàng thời gian ngắn
+超短交期,giao hàng thời gian siêu ngắn
+男装,đồ nam
+女装,đồ nữ
+童装,đồ trẻ em
+婴儿服装,quần áo trẻ sơ sinh
+运动服,đồ thể thao
+休闲服,đồ mặc thường ngày
+工作服,đồng phục làm việc
+制服,đồng phục
+校服,đồng phục học sinh
+家居服,đồ mặc ở nhà
+睡衣,đồ ngủ
+内衣,đồ lót
+裤装,trang phục quần
+衬衫,áo sơ mi
+外套,áo khoác
+西装,vest / âu phục
+裙装,váy
+家纺,hàng dệt may gia dụng
+经向,hướng dọc
+纬向,hướng ngang
+变色,biến màu
+灰卡,thẻ xám đánh giá độ bền màu
+标准样照,mẫu tiêu chuẩn
