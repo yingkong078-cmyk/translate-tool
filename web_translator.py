@@ -14,7 +14,7 @@
 #   5. 校验 direction、文本长度；新增 /health；
 #   6. 页面拆到 templates/index.html（带朗读、语音输入），这里只负责接口。
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, Response, request, jsonify
 
 import csv
 import os
@@ -27,6 +27,15 @@ import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "translator_secret_key_2024")
+
+# 页面文件位置：优先 templates/index.html，其次根目录 index.html。
+# 这样无论把页面放在哪个位置都能打开，避免因为少传一个文件夹导致首页 500。
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PAGE_CANDIDATES = [
+    os.path.join(BASE_DIR, "templates", "index.html"),
+    os.path.join(BASE_DIR, "index.html"),
+]
+_page_cache = {"path": None, "mtime": None, "html": None}
 
 
 # ==================== 配置区域 ====================
@@ -550,9 +559,33 @@ class Translator:
 translator = Translator()
 
 
+def load_page_html():
+    """读取页面文件并缓存（文件修改后自动重新加载）。"""
+    for path in PAGE_CANDIDATES:
+        if not os.path.exists(path):
+            continue
+        mtime = os.path.getmtime(path)
+        if _page_cache["path"] != path or _page_cache["mtime"] != mtime:
+            with open(path, "r", encoding="utf-8") as handle:
+                _page_cache["html"] = handle.read()
+            _page_cache["path"] = path
+            _page_cache["mtime"] = mtime
+        return _page_cache["html"]
+    return None
+
+
 @app.route("/")
 def index():
-    return render_template("index.html", term_count=translator.get_term_count())
+    html = load_page_html()
+    if html is None:
+        return (
+            "<h1>缺少页面文件 index.html</h1>"
+            "<p>请把 index.html（或 templates/index.html）一起部署到仓库。</p>",
+            500,
+        )
+    # 只替换术语数量这一处占位符，不依赖 Jinja，页面放哪个目录都能用
+    html = html.replace("{{ term_count }}", str(translator.get_term_count()))
+    return Response(html, mimetype="text/html")
 
 
 @app.route("/translate", methods=["POST"])

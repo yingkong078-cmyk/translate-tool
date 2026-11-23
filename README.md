@@ -49,12 +49,15 @@ usage.completion_tokens_details.reasoning_tokens ≈ 500
 
 ```
 web_translator.py        后端（Flask + 翻译 + 缓存）
-templates/index.html     前端页面（含语音功能）
+templates/index.html     前端页面（含语音功能；也可放在根目录 index.html）
 词库20260812.csv          术语表
 requirements.txt
 runtime.txt
 gunicorn.py
 ```
+
+> 页面文件两个位置都支持：`templates/index.html` 或根目录 `index.html`。
+> 少传了页面文件时，首页会报 500（`/health` 仍然正常），见下方常见问题。
 
 ## 本地运行
 
@@ -100,6 +103,23 @@ python web_translator.py
 - `API_CONFIG` 里的密钥已经随仓库/压缩包泄露，**请到腾讯云控制台作废并重新生成**，
   之后只用环境变量注入。
 - `/clear_cache` 仍然没有鉴权（任何访客都能清空缓存），需要的话可以加 token 或从界面移除。
+
+## 常见问题
+
+### 首页 500「Internal Server Error」，但 `/health` 正常
+
+说明后端已经跑起来，只是**没找到页面文件**。检查仓库根目录下有没有
+`templates/index.html`（或 `index.html`）。
+
+GitHub 网页上传时如果只选了文件、没有把 `templates` 文件夹一起拖进去，就会出现这个现象。
+
+修复：在 GitHub 仓库里点 **Add file → Create new file**，文件名输入
+`templates/index.html`（斜杠会自动建文件夹），把 `templates/index.html` 的内容粘进去，提交后等 Render 自动重新部署。
+
+### 页面能打开但翻译报错
+
+看 Render 的 Logs；`/health` 返回 `{"ok": true}` 说明服务和术语表正常，
+翻译问题多半是密钥失效或额度不足。
 
 ## 语音功能说明
 
