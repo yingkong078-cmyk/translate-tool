@@ -490,18 +490,36 @@
     }
 
     // ---------- 朗读（TTS） ----------
-    function pickVoice(langTag) {
+    function pickVoice(langTag, forceLocal) {
         if (!ttsSupported) return null;
         var voices = window.speechSynthesis.getVoices() || [];
         var lower = langTag.toLowerCase();
         var base = lower.split('-')[0];
+        var exact = [];
+        var sameBase = [];
         for (var i = 0; i < voices.length; i++) {
-            if ((voices[i].lang || '').toLowerCase() === lower) return voices[i];
+            var vl = (voices[i].lang || '').toLowerCase();
+            if (vl === lower) exact.push(voices[i]);
+            else if (vl.indexOf(base) === 0) sameBase.push(voices[i]);
         }
-        for (var j = 0; j < voices.length; j++) {
-            if ((voices[j].lang || '').toLowerCase().indexOf(base) === 0) return voices[j];
+        var pool = exact.length ? exact : sameBase;
+        if (!pool.length) return null;
+
+        if (forceLocal) {
+            for (var k = 0; k < pool.length; k++) {
+                if (pool[k].localService) return pool[k];
+            }
         }
-        return null;
+
+        // 越南语优先用 Edge 的在线自然语音（Hoài My / Nam Minh），
+        // 本地 SAPI 的 Microsoft An 是拼接式语音，听起来会比较生硬。
+        if (!forceLocal && base === 'vi') {
+            for (var j = 0; j < pool.length; j++) {
+                if (/natural|online/i.test(pool[j].name || '')) return pool[j];
+            }
+        }
+
+        return pool[0];
     }
 
     function speakResult() {
@@ -509,18 +527,29 @@
         if (!ttsSupported) { showToast(d.speak_unsupported, true); return; }
         if (speaking) { stopSpeaking(); return; }
         if (!lastResult) return;
+        speakWith(currentMode === 'cn_to_vi' ? 'vi-VN' : 'zh-CN', false);
+    }
 
-        var langTag = currentMode === 'cn_to_vi' ? 'vi-VN' : 'zh-CN';
+    function speakWith(langTag, forceLocal) {
+        var d = T();
         var speechText = lastResult.replace(/\*\*/g, '').replace(/[`*#]/g, '');
         var utter = new SpeechSynthesisUtterance(speechText);
         utter.lang = langTag;
         utter.rate = 0.95;
-        var voice = pickVoice(langTag);
+        var voice = pickVoice(langTag, forceLocal);
         if (voice) utter.voice = voice;
         else if (langTag.indexOf('vi') === 0) showToast(d.no_voice, false, true);
 
         utter.onend = function () { speaking = false; refreshControls(); };
-        utter.onerror = function () { speaking = false; refreshControls(); };
+        utter.onerror = function () {
+            speaking = false;
+            // 在线自然语音失败（断网/超时）→ 退回本地语音再试一次
+            if (!forceLocal && voice && voice.localService === false) {
+                speakWith(langTag, true);
+                return;
+            }
+            refreshControls();
+        };
 
         try { window.speechSynthesis.cancel(); } catch (e) {}
         window.speechSynthesis.speak(utter);
@@ -668,6 +697,10 @@
 
         applyLang();
         setupMic();
+        // 提前触发语音列表加载，避免第一次点朗读时还拿不到发音人
+        if (ttsSupported) {
+            try { window.speechSynthesis.getVoices(); } catch (e) {}
+        }
         updateCharCount();
         updateCacheInfo();
 
