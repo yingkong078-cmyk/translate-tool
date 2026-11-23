@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f0f4f8">
+    <meta name="description" content="中越翻译工具 - 术语优先保留，支持语音朗读与语音输入">
+    <title>中越翻译工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f4f8;
+            padding: 20px;
+            max-width: 500px;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+        .card { background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+        .title { font-size: 24px; font-weight: bold; color: #4A90D9; text-align: center; }
+        .subtitle { font-size: 12px; color: #6b7280; text-align: center; margin-top: 4px; }
+        .lang-switch { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 12px; background: #f5f7fa; border-radius: 8px; }
+        .lang-btn { padding: 6px 18px; border: 2px solid #d9d9d9; border-radius: 6px; background: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all .3s; }
+        .lang-btn.active { border-color: #4A90D9; background: #e8f0fe; color: #4A90D9; }
+        .lang-btn:active { transform: scale(.95); }
+        .lang-label { font-size: 14px; color: #4b5563; }
+        .mode-switch { display: flex; gap: 10px; margin-bottom: 15px; }
+        .mode-btn { flex: 1; padding: 12px; border: 2px solid #d9d9d9; border-radius: 8px; background: #fff; font-size: 16px; cursor: pointer; transition: all .3s; font-weight: normal; }
+        .mode-btn.active { border-color: #4A90D9; background: #e8f0fe; color: #4A90D9; font-weight: bold; }
+        .mode-btn:active { transform: scale(.97); }
+        textarea { width: 100%; padding: 12px; border: 2px solid #d9d9d9; border-radius: 8px; font-size: 16px; min-height: 100px; font-family: inherit; resize: vertical; transition: border-color .3s; }
+        textarea:focus { outline: none; border-color: #4A90D9; }
+        .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all .3s; }
+        .btn:disabled { opacity: .6; cursor: not-allowed; }
+        .btn-primary { background: #4A90D9; color: #fff; }
+        .btn-primary:active { background: #3a7bc8; transform: scale(.98); }
+        .btn-primary:disabled { background: #a0c4e8; }
+        .btn-secondary { background: #f0f0f0; color: #333; }
+        .btn-secondary:active { background: #e0e0e0; transform: scale(.98); }
+        .btn-success { background: #52c41a; color: #fff; }
+        .btn-success:active { background: #45a818; transform: scale(.98); }
+        .btn-success:disabled { background: #a8d88a; }
+        .btn-cache { background: #faad14; color: #fff; }
+        .btn-cache:active { background: #e09e12; transform: scale(.98); }
+        .btn-voice { background: #eef4ff; color: #2f6db3; border: 2px solid #cfe0f7; }
+        .btn-voice:active { background: #dbe8fb; transform: scale(.98); }
+        .btn-voice.speaking { background: #4A90D9; border-color: #4A90D9; color: #fff; }
+        .btn-mic { background: #fff; color: #4A90D9; border: 2px solid #cfe0f7; }
+        .btn-mic:active { background: #eef4ff; }
+        .btn-mic.recording { background: #ff4d4f; border-color: #ff4d4f; color: #fff; animation: pulse 1.2s infinite; }
+        .output { background: #f8f9fa; min-height: 100px; padding: 12px; border-radius: 8px; font-size: 16px; white-space: pre-wrap; word-wrap: break-word; border: 2px solid #e8e8e8; }
+        .status { font-size: 14px; margin-top: 10px; padding: 8px 12px; border-radius: 6px; }
+        .status-ready { color: #389e0d; background: #f6ffed; }
+        .status-translating { color: #ad6800; background: #fffbe6; }
+        .status-done { color: #389e0d; background: #f6ffed; }
+        .status-cache { color: #ad6800; background: #fffbe6; }
+        .status-error { color: #cf1322; background: #fff2f0; }
+        .row { display: flex; gap: 10px; margin-top: 10px; }
+        .row .btn { flex: 1; }
+        .term-count { font-size: 12px; color: #6b7280; margin-top: 8px; }
+        .speed-info { font-size: 12px; color: #6b7280; margin-top: 4px; }
+        .hint { font-size: 12px; color: #6b7280; margin-top: 8px; min-height: 16px; }
+        .counter { font-size: 12px; color: #6b7280; text-align: right; margin: 6px 2px 10px; }
+        .copy-toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #52c41a; color: #fff; padding: 12px 24px; border-radius: 8px;
+            font-size: 16px; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+            z-index: 999; animation: fadeInDown .3s ease-out; display: none; max-width: 90vw;
+        }
+        .copy-toast.error { background: #ff4d4f; }
+        .copy-toast.info { background: #faad14; }
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .65; } }
+        .cache-badge {
+            display: inline-block; background: #faad14; color: #fff; font-size: 10px;
+            padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: 1px;
+        }
+        button:focus-visible, textarea:focus-visible { outline: 3px solid rgba(74,144,217,.45); outline-offset: 2px; }
+        @media (hover: hover) {
+            .btn-primary:hover:not(:disabled) { background: #3a7bc8; }
+            .btn-secondary:hover:not(:disabled) { background: #e6e6e6; }
+            .btn-success:hover:not(:disabled) { background: #45a818; }
+            .btn-cache:hover:not(:disabled) { background: #e09e12; }
+            .btn-voice:hover:not(:disabled) { background: #dbe8fb; }
+            .btn-mic:hover:not(:disabled) { background: #eef4ff; }
+            .lang-btn:hover { border-color: #4A90D9; }
+        }
+        @media (max-width: 400px) { body { padding: 10px; } .card { padding: 15px; } .title { font-size: 20px; } }
+    </style>
+</head>
+<body>
+    <div id="toast" class="copy-toast" role="status" aria-live="polite">✅ 已复制到剪贴板！</div>
+
+    <div class="card">
+        <div class="title" id="titleText">🌐 中越翻译工具</div>
+        <div class="subtitle">
+            <span id="subtitleText">术语优先保留 · 翻译仅供参考</span><span class="cache-badge" id="cacheBadge">⚡ 缓存加速</span>
+        </div>
+        <div class="lang-switch">
+            <span class="lang-label" id="langLabel">🌐 界面语言:</span>
+            <button class="lang-btn active" id="lang-zh">中文</button>
+            <button class="lang-btn" id="lang-vi">Tiếng Việt</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="mode-switch">
+            <button class="mode-btn active" id="mode-cn">
+                <span id="modeCnLabel">中 → 越</span>
+            </button>
+            <button class="mode-btn" id="mode-vi">
+                <span id="modeViLabel">越 → 中</span>
+            </button>
+        </div>
+
+        <textarea id="inputText" maxlength="5000" spellcheck="false" placeholder="请输入要翻译的中文..." rows="3"></textarea>
+        <div class="counter"><span id="charCount">0</span>/5000</div>
+
+        <button class="btn btn-primary" id="translateBtn">
+            <span id="translateBtnLabel">🚀 翻译</span>
+        </button>
+        <div class="row">
+            <button class="btn btn-secondary" id="clearBtn">
+                <span id="clearBtnLabel">🗑️ 清空</span>
+            </button>
+            <button class="btn btn-secondary" id="swapBtn">
+                <span id="swapBtnLabel">🔄 互换</span>
+            </button>
+            <button class="btn btn-cache" id="clearCacheBtn" title="清空缓存">
+                <span id="cacheBtnLabel">🗑️ 缓存</span>
+            </button>
+        </div>
+        <div class="row">
+            <button class="btn btn-mic" id="micBtn" aria-pressed="false">
+                <span id="micBtnLabel">🎤 语音输入</span>
+            </button>
+        </div>
+        <div class="hint" id="micHint" aria-live="polite"></div>
+    </div>
+
+    <div class="card" id="resultCard">
+        <div id="outputText" class="output" aria-live="polite">翻译结果将显示在这里...</div>
+        <div class="row">
+            <button class="btn btn-success" id="copyBtn">
+                <span id="copyBtnLabel">📋 复制</span>
+            </button>
+            <button class="btn btn-voice" id="speakBtn" aria-pressed="false">
+                <span id="speakBtnLabel">🔊 朗读</span>
+            </button>
+        </div>
+        <div id="status" class="status status-ready" role="status" aria-live="polite">✅ 就绪</div>
+        <div class="term-count" id="termCount">📚 已加载 945 条术语</div>
+        <div class="speed-info" id="cacheInfo">⚡ 缓存大小: 0 条</div>
+    </div>
+
+<script>
+(function () {
+    'use strict';
+
+    var TERM_COUNT = {{ term_count }};
+    var CHAR_LIMIT = 5000;
+    var $ = function (id) { return document.getElementById(id); };
+
+    var LANG = {
+        zh: {
+            doc_title: '中越翻译工具',
+            title: '🌐 中越翻译工具',
+            subtitle: '术语优先保留 · 翻译仅供参考',
+            badge: '⚡ 缓存加速',
+            lang_label: '🌐 界面语言:',
+            mode_cn: '中 → 越', mode_vi: '越 → 中',
+            placeholder_cn: '请输入要翻译的中文...',
+            placeholder_vi: '请输入要翻译的越南语...',
+            translate: '🚀 翻译', translating: '⏳ 翻译中...', retrying: '🔄 正在重试 ({n}/2)...',
+            clear: '🗑️ 清空', swap: '🔄 互换', cache_clear: '🗑️ 缓存',
+            copy: '📋 复制', speak: '🔊 朗读', stop_speak: '⏹ 停止',
+            mic: '🎤 语音输入', mic_listening: '🎙️ 正在聆听...',
+            output_placeholder: '翻译结果将显示在这里...',
+            status_ready: '✅ 就绪', status_translating: '🔄 正在翻译...',
+            status_done: '✅ 翻译完成', status_cache: '⚡ 从缓存读取（快速）',
+            status_clear: '✅ 已清空', status_input_error: '⚠️ 请输入要翻译的文本',
+            term_count: '📚 已加载 {count} 条术语',
+            cache_size: '⚡ 缓存大小: {n} 条',
+            copy_success: '✅ 已复制到剪贴板！', copy_fail: '❌ 复制失败，请手动选择文字',
+            cache_cleared: '🗑️ 缓存已清空',
+            empty_result: '⚠️ 服务器返回空结果，请重试',
+            translate_failed: '❌ 翻译失败',
+            timeout: '⏱️ 请求超时，请重试',
+            mic_unsupported: '⚠️ 当前浏览器不支持语音输入，请用 Chrome / Edge',
+            mic_denied: '❌ 未获得麦克风权限',
+            mic_error: '❌ 语音识别出错，请重试',
+            speak_unsupported: '⚠️ 当前浏览器不支持语音朗读',
+            no_voice: '⚠️ 未检测到越南语语音包，朗读可能不准确'
+        },
+        vi: {
+            doc_title: 'Công cụ dịch Trung-Việt',
+            title: '🌐 Công cụ dịch Trung-Việt',
+            subtitle: 'Giữ thuật ngữ ưu tiên · Dịch máy tham khảo',
+            badge: '⚡ Bộ đệm',
+            lang_label: '🌐 Ngôn ngữ giao diện:',
+            mode_cn: 'Trung → Việt', mode_vi: 'Việt → Trung',
+            placeholder_cn: 'Nhập tiếng Trung cần dịch...',
+            placeholder_vi: 'Nhập tiếng Việt cần dịch...',
+            translate: '🚀 Dịch', translating: '⏳ Đang dịch...', retrying: '🔄 Đang thử lại ({n}/2)...',
+            clear: '🗑️ Xóa', swap: '🔄 Đổi chiều', cache_clear: '🗑️ Bộ đệm',
+            copy: '📋 Sao chép', speak: '🔊 Đọc', stop_speak: '⏹ Dừng',
+            mic: '🎤 Nhập giọng nói', mic_listening: '🎙️ Đang nghe...',
+            output_placeholder: 'Kết quả dịch sẽ hiển thị ở đây...',
+            status_ready: '✅ Sẵn sàng', status_translating: '🔄 Đang dịch...',
+            status_done: '✅ Dịch hoàn tất', status_cache: '⚡ Đọc từ bộ đệm',
+            status_clear: '✅ Đã xóa', status_input_error: '⚠️ Vui lòng nhập văn bản cần dịch',
+            term_count: '📚 Đã tải {count} thuật ngữ',
+            cache_size: '⚡ Bộ đệm: {n} mục',
+            copy_success: '✅ Đã sao chép!', copy_fail: '❌ Sao chép thất bại, hãy chọn thủ công',
+            cache_cleared: '🗑️ Đã xóa bộ đệm',
+            empty_result: '⚠️ Máy chủ trả về kết quả rỗng, vui lòng thử lại',
+            translate_failed: '❌ Dịch thất bại',
+            timeout: '⏱️ Hết thời gian chờ, vui lòng thử lại',
+            mic_unsupported: '⚠️ Trình duyệt không hỗ trợ nhập giọng nói, hãy dùng Chrome / Edge',
+            mic_denied: '❌ Chưa cấp quyền micro',
+            mic_error: '❌ Lỗi nhận giọng nói, vui lòng thử lại',
+            speak_unsupported: '⚠️ Trình duyệt không hỗ trợ đọc văn bản',
+            no_voice: '⚠️ Chưa cài giọng đọc tiếng Việt, âm thanh có thể không chuẩn'
+        }
+    };
+
+    var currentLang = 'zh';
+    var currentMode = 'cn_to_vi';
+    var isTranslating = false;
+    var lastResult = '';
+    var statusState = 'ready';
+    var cacheSize = 0;
+    var speaking = false;
+    var recognizing = false;
+    var micBase = '';
+    var micSupported = false;
+    var recognition = null;
+    var ttsSupported = ('speechSynthesis' in window) && ('SpeechSynthesisUtterance' in window);
+
+    function T() { return LANG[currentLang]; }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    // ---------- 提示 ----------
+    function showToast(message, isError, isInfo) {
+        var toast = $('toast');
+        toast.textContent = message;
+        toast.className = 'copy-toast' + (isError ? ' error' : '') + (isInfo ? ' info' : '');
+        toast.style.display = 'block';
+        clearTimeout(toast._hideTimer);
+        toast._hideTimer = setTimeout(function () { toast.style.display = 'none'; }, 2400);
+    }
+
+    // ---------- 状态 ----------
+    function updateStatus(text, type, state) {
+        var el = $('status');
+        el.textContent = text;
+        el.className = 'status ' + type;
+        statusState = state || 'ready';
+    }
+
+    // ---------- 语言 ----------
+    function switchLang(lang) {
+        currentLang = lang;
+        try { localStorage.setItem('zvt.lang', lang); } catch (e) {}
+        applyLang();
+        refreshControls();
+        if (statusState === 'ready') updateStatus(T().status_ready, 'status-ready', 'ready');
+        if (statusState === 'clear') updateStatus(T().status_clear, 'status-ready', 'clear');
+    }
+
+    function applyLang() {
+        var d = T();
+        document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'vi-VN';
+        document.title = d.doc_title;
+        $('titleText').textContent = d.title;
+        $('subtitleText').textContent = d.subtitle;
+        $('cacheBadge').textContent = d.badge;
+        $('langLabel').textContent = d.lang_label;
+        $('lang-zh').className = 'lang-btn' + (currentLang === 'zh' ? ' active' : '');
+        $('lang-vi').className = 'lang-btn' + (currentLang === 'vi' ? ' active' : '');
+        $('modeCnLabel').textContent = d.mode_cn;
+        $('modeViLabel').textContent = d.mode_vi;
+        $('inputText').placeholder = currentMode === 'cn_to_vi' ? d.placeholder_cn : d.placeholder_vi;
+        $('clearBtnLabel').textContent = d.clear;
+        $('swapBtnLabel').textContent = d.swap;
+        $('cacheBtnLabel').textContent = d.cache_clear;
+        $('termCount').textContent = d.term_count.replace('{count}', TERM_COUNT);
+        $('cacheInfo').textContent = d.cache_size.replace('{n}', cacheSize);
+        if (!lastResult && !isTranslating && statusState !== 'error') {
+            $('outputText').textContent = d.output_placeholder;
+        }
+        refreshControls();
+    }
+
+    // ---------- 按钮状态 ----------
+    function refreshControls() {
+        var d = T();
+        $('translateBtn').disabled = isTranslating;
+        $('copyBtn').disabled = isTranslating || !lastResult;
+        $('speakBtn').disabled = !ttsSupported || isTranslating || !lastResult;
+        $('micBtn').disabled = !micSupported || isTranslating;
+        $('translateBtnLabel').textContent = isTranslating ? d.translating : d.translate;
+        $('copyBtnLabel').textContent = d.copy;
+        $('speakBtnLabel').textContent = speaking ? d.stop_speak : d.speak;
+        $('micBtnLabel').textContent = recognizing ? d.mic_listening : d.mic;
+        $('speakBtn').className = 'btn btn-voice' + (speaking ? ' speaking' : '');
+        $('speakBtn').setAttribute('aria-pressed', speaking ? 'true' : 'false');
+        $('micBtn').className = 'btn btn-mic' + (recognizing ? ' recording' : '');
+        $('micBtn').setAttribute('aria-pressed', recognizing ? 'true' : 'false');
+    }
+
+    // ---------- 方向 ----------
+    function setMode(mode, keepResult) {
+        if (isTranslating) return;
+        var changed = mode !== currentMode;
+        currentMode = mode;
+        try { localStorage.setItem('zvt.mode', mode); } catch (e) {}
+        $('mode-cn').className = 'mode-btn' + (mode === 'cn_to_vi' ? ' active' : '');
+        $('mode-vi').className = 'mode-btn' + (mode === 'vi_to_cn' ? ' active' : '');
+        $('inputText').placeholder = mode === 'cn_to_vi' ? T().placeholder_cn : T().placeholder_vi;
+        if (changed && !keepResult) {
+            lastResult = '';
+            $('outputText').textContent = T().output_placeholder;
+            updateStatus(T().status_ready, 'status-ready', 'ready');
+        }
+        refreshControls();
+    }
+
+    function swapText() {
+        if (isTranslating) return;
+        var d = T();
+        var out = $('outputText').textContent;
+        var hasResult = lastResult !== '' && out === lastResult;
+        var oldInput = $('inputText').value;
+        stopSpeaking();
+
+        if (hasResult && oldInput.trim()) {
+            $('inputText').value = lastResult;
+            lastResult = oldInput;
+            $('outputText').textContent = oldInput;
+            updateStatus(d.status_ready, 'status-ready', 'ready');
+        } else {
+            lastResult = '';
+            $('outputText').textContent = d.output_placeholder;
+            updateStatus(d.status_ready, 'status-ready', 'ready');
+        }
+        setMode(currentMode === 'cn_to_vi' ? 'vi_to_cn' : 'cn_to_vi', true);
+        updateCharCount();
+        refreshControls();
+    }
+
+    // ---------- 翻译 ----------
+    function postTranslate(payload, timeoutMs) {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
+        return fetch('/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: ctrl.signal
+        }).then(function (res) {
+            return res.text().then(function (raw) {
+                var data = null;
+                try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = null; }
+                if (!res.ok) {
+                    var err = new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+                    err.status = res.status;
+                    throw err;
+                }
+                if (!data) {
+                    var err2 = new Error('HTTP ' + res.status);
+                    err2.status = res.status;
+                    throw err2;
+                }
+                return data;
+            });
+        }).finally(function () { clearTimeout(timer); });
+    }
+
+    async function translateText() {
+        if (isTranslating) return;
+        var d = T();
+        var text = $('inputText').value;
+        if (!text.trim()) {
+            $('outputText').textContent = d.status_input_error;
+            updateStatus(d.status_input_error, 'status-error', 'error');
+            return;
+        }
+
+        stopSpeaking();
+        isTranslating = true;
+        lastResult = '';
+        refreshControls();
+        $('outputText').textContent = '🔄 ' + (currentLang === 'zh' ? '翻译中...' : 'Đang dịch...');
+        updateStatus(d.status_translating, 'status-translating', 'translating');
+
+        var failure = null;
+        for (var attempt = 0; attempt <= 2; attempt++) {
+            if (attempt > 0) {
+                updateStatus(d.retrying.replace('{n}', String(attempt)), 'status-translating', 'translating');
+                await sleep(500 * attempt);
+            }
+            try {
+                var data = await postTranslate({ text: text, direction: currentMode }, 20000);
+                if (data && data.error) throw new Error(data.error);
+                var result = typeof data.result === 'string' ? data.result : '';
+                if (!result.trim()) throw new Error(d.empty_result);
+                lastResult = result;
+                $('outputText').textContent = result;
+                updateStatus(data.cache_hit ? d.status_cache : d.status_done,
+                             data.cache_hit ? 'status-cache' : 'status-done',
+                             data.cache_hit ? 'cache' : 'done');
+                failure = null;
+                break;
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    failure = new Error(d.timeout);
+                    break;
+                }
+                failure = err;
+                // 服务端明确返回错误（4xx/500/502）说明它内部已经重试过，不再重复请求
+                if (err && (err.status === 400 || err.status === 413 || err.status === 500 || err.status === 502)) break;
+            }
+        }
+
+        isTranslating = false;
+        if (failure) {
+            lastResult = '';
+            var msg = (failure.message || d.translate_failed);
+            $('outputText').textContent = msg;
+            updateStatus(msg, 'status-error', 'error');
+        }
+        refreshControls();
+        updateCacheInfo();
+        if (lastResult && window.innerWidth < 760) {
+            setTimeout(function () {
+                var rect = $('resultCard').getBoundingClientRect();
+                if (rect.bottom > window.innerHeight) {
+                    $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, 60);
+        }
+    }
+
+    // ---------- 复制 ----------
+    function copyResult() {
+        var d = T();
+        if (!lastResult) { showToast(d.copy_fail, true); return; }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(lastResult).then(function () {
+                showToast(d.copy_success);
+            }).catch(function () { fallbackCopy(lastResult, d); });
+        } else {
+            fallbackCopy(lastResult, d);
+        }
+    }
+
+    function fallbackCopy(text, d) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showToast(d.copy_success);
+        } catch (e) {
+            showToast(d.copy_fail, true);
+        }
+        document.body.removeChild(ta);
+    }
+
+    // ---------- 清空 ----------
+    function clearAll() {
+        if (isTranslating) return;
+        var d = T();
+        stopSpeaking();
+        stopMic();
+        $('inputText').value = '';
+        $('outputText').textContent = d.output_placeholder;
+        lastResult = '';
+        updateCharCount();
+        updateStatus(d.status_clear, 'status-ready', 'clear');
+        refreshControls();
+    }
+
+    // ---------- 朗读（TTS） ----------
+    function pickVoice(langTag) {
+        if (!ttsSupported) return null;
+        var voices = window.speechSynthesis.getVoices() || [];
+        var lower = langTag.toLowerCase();
+        var base = lower.split('-')[0];
+        for (var i = 0; i < voices.length; i++) {
+            if ((voices[i].lang || '').toLowerCase() === lower) return voices[i];
+        }
+        for (var j = 0; j < voices.length; j++) {
+            if ((voices[j].lang || '').toLowerCase().indexOf(base) === 0) return voices[j];
+        }
+        return null;
+    }
+
+    function speakResult() {
+        var d = T();
+        if (!ttsSupported) { showToast(d.speak_unsupported, true); return; }
+        if (speaking) { stopSpeaking(); return; }
+        if (!lastResult) return;
+
+        var langTag = currentMode === 'cn_to_vi' ? 'vi-VN' : 'zh-CN';
+        var speechText = lastResult.replace(/\*\*/g, '').replace(/[`*#]/g, '');
+        var utter = new SpeechSynthesisUtterance(speechText);
+        utter.lang = langTag;
+        utter.rate = 0.95;
+        var voice = pickVoice(langTag);
+        if (voice) utter.voice = voice;
+        else if (langTag.indexOf('vi') === 0) showToast(d.no_voice, false, true);
+
+        utter.onend = function () { speaking = false; refreshControls(); };
+        utter.onerror = function () { speaking = false; refreshControls(); };
+
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+        window.speechSynthesis.speak(utter);
+        speaking = true;
+        refreshControls();
+    }
+
+    function stopSpeaking() {
+        if (ttsSupported) {
+            try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
+        speaking = false;
+        if ($('speakBtn')) refreshControls();
+    }
+
+    // ---------- 语音输入（STT） ----------
+    function setupMic() {
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        micSupported = !!SR;
+        if (!micSupported) {
+            $('micBtn').style.display = 'none';
+            refreshControls();
+            return;
+        }
+        recognition = new SR();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.lang = 'zh-CN';
+
+        recognition.onstart = function () {
+            recognizing = true;
+            $('micHint').textContent = '';
+            refreshControls();
+        };
+        recognition.onresult = function (event) {
+            var finalText = '';
+            var interim = '';
+            for (var i = 0; i < event.results.length; i++) {
+                var r = event.results[i];
+                if (r.isFinal) finalText += r[0].transcript;
+                else interim += r[0].transcript;
+            }
+            if (finalText) {
+                $('inputText').value = (micBase + finalText).slice(0, CHAR_LIMIT);
+                updateCharCount();
+            }
+            $('micHint').textContent = interim ? ('… ' + interim) : '';
+        };
+        recognition.onerror = function (event) {
+            var d = T();
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                showToast(d.mic_denied, true);
+            } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
+                showToast(d.mic_error, true);
+            }
+        };
+        recognition.onend = function () {
+            recognizing = false;
+            $('micHint').textContent = '';
+            refreshControls();
+        };
+        refreshControls();
+    }
+
+    function toggleMic() {
+        var d = T();
+        if (!micSupported) { showToast(d.mic_unsupported, true); return; }
+        if (recognizing) { stopMic(); return; }
+        stopSpeaking();
+        micBase = $('inputText').value.replace(/\s*$/, '');
+        if (micBase) micBase += ' ';
+        try {
+            recognition.lang = currentMode === 'cn_to_vi' ? 'zh-CN' : 'vi-VN';
+            recognition.start();
+        } catch (e) {
+            showToast(d.mic_error, true);
+        }
+    }
+
+    function stopMic() {
+        if (recognition && recognizing) {
+            try { recognition.stop(); } catch (e) {}
+        }
+        recognizing = false;
+        if ($('micHint')) $('micHint').textContent = '';
+        refreshControls();
+    }
+
+    // ---------- 缓存 ----------
+    function updateCacheInfo() {
+        return fetch('/cache_info').then(function (r) {
+            return r.ok ? r.json() : null;
+        }).then(function (data) {
+            if (data && typeof data.size === 'number') {
+                cacheSize = data.size;
+                $('cacheInfo').textContent = T().cache_size.replace('{n}', cacheSize);
+            }
+        }).catch(function () {});
+    }
+
+    function clearCache() {
+        var d = T();
+        fetch('/clear_cache', { method: 'POST' }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json().catch(function () { return null; });
+        }).then(function () {
+            showToast(d.cache_cleared, false, true);
+            cacheSize = 0;
+            $('cacheInfo').textContent = d.cache_size.replace('{n}', 0);
+        }).catch(function () {
+            showToast(d.translate_failed, true);
+        });
+    }
+
+    // ---------- 字数 ----------
+    function updateCharCount() {
+        $('charCount').textContent = String($('inputText').value.length);
+    }
+
+    // ---------- 初始化 ----------
+    function init() {
+        try {
+            var savedLang = localStorage.getItem('zvt.lang');
+            var savedMode = localStorage.getItem('zvt.mode');
+            if (savedLang === 'zh' || savedLang === 'vi') currentLang = savedLang;
+            if (savedMode === 'cn_to_vi' || savedMode === 'vi_to_cn') currentMode = savedMode;
+        } catch (e) {}
+
+        $('mode-cn').className = 'mode-btn' + (currentMode === 'cn_to_vi' ? ' active' : '');
+        $('mode-vi').className = 'mode-btn' + (currentMode === 'vi_to_cn' ? ' active' : '');
+        $('inputText').placeholder = currentMode === 'cn_to_vi' ? T().placeholder_cn : T().placeholder_vi;
+
+        $('lang-zh').addEventListener('click', function () { switchLang('zh'); });
+        $('lang-vi').addEventListener('click', function () { switchLang('vi'); });
+        $('mode-cn').addEventListener('click', function () { setMode('cn_to_vi'); });
+        $('mode-vi').addEventListener('click', function () { setMode('vi_to_cn'); });
+        $('translateBtn').addEventListener('click', translateText);
+        $('clearBtn').addEventListener('click', clearAll);
+        $('swapBtn').addEventListener('click', swapText);
+        $('clearCacheBtn').addEventListener('click', clearCache);
+        $('micBtn').addEventListener('click', toggleMic);
+        $('copyBtn').addEventListener('click', copyResult);
+        $('speakBtn').addEventListener('click', speakResult);
+
+        applyLang();
+        setupMic();
+        updateCharCount();
+        updateCacheInfo();
+
+        $('inputText').addEventListener('input', updateCharCount);
+        $('inputText').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                translateText();
+            }
+        });
+
+        setInterval(function () {
+            if (!document.hidden) updateCacheInfo();
+        }, 30000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+</script>
+</body>
+</html>
