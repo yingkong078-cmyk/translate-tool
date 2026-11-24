@@ -234,6 +234,7 @@
     var statusState = 'ready';
     var cacheSize = 0;
     var speaking = false;
+    var maleHintShown = false;
     var recognizing = false;
     var micBase = '';
     var micSupported = false;
@@ -511,11 +512,17 @@
             }
         }
 
-        // 越南语优先用 Edge 的在线自然语音（Hoài My / Nam Minh），
-        // 本地 SAPI 的 Microsoft An 是拼接式语音，听起来会比较生硬。
+        // 越南语优先女声：Edge 的「Hoài My Online (Natural)」是女声且最自然，
+        // 其次是本地的 Linh/An；Microsoft An 是男声，只作为最后兜底。
         if (!forceLocal && base === 'vi') {
+            var female = /hoài my|hoai my|\blinh\b|female|nữ/i;
+            for (var f = 0; f < pool.length; f++) {
+                if (female.test(pool[f].name || '')) return pool[f];
+            }
+            // 再退一步：任何自然/在线语音，但避开男声 Nam Minh
             for (var j = 0; j < pool.length; j++) {
-                if (/natural|online/i.test(pool[j].name || '')) return pool[j];
+                var nm = pool[j].name || '';
+                if (/natural|online/i.test(nm) && !/nam minh|male/i.test(nm)) return pool[j];
             }
         }
 
@@ -539,6 +546,17 @@
         var voice = pickVoice(langTag, forceLocal);
         if (voice) utter.voice = voice;
         else if (langTag.indexOf('vi') === 0) showToast(d.no_voice, false, true);
+
+        // Chrome 里只有男声 An，提示一次改用 Edge 听女声
+        if (!maleHintShown && langTag.indexOf('vi') === 0 && voice && /microsoft an|nam minh/i.test(voice.name || '')) {
+            maleHintShown = true;
+            showToast(
+                currentLang === 'zh'
+                    ? '当前设备只有男声（Microsoft An），用 Edge 可听女声 Hoài My'
+                    : 'Thiết bị chỉ có giọng nam (Microsoft An), dùng Edge để nghe giọng nữ Hoài My',
+                false, true
+            );
+        }
 
         utter.onend = function () { speaking = false; refreshControls(); };
         utter.onerror = function () {
